@@ -30,30 +30,52 @@ def build_messages(topic_prompt: str, level: str, context_turns: list[dict], use
     return messages
 
 
-def generate(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> str:
-    messages = build_messages(topic_prompt, level, context_turns, user_text)
+def _ollama_chat(messages: list[dict]) -> str:
+    url = f"{settings.ollama_host}/api/chat"
+    payload = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
 
     try:
         with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-            resp = client.post(
-                f"{settings.ollama_host}/api/chat",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "messages": messages,
-                    "stream": False,
-                },
-            )
+            resp = client.post(url, json=payload)
+
+        if resp.status_code == 404:
+            logger.info("Ollama /api/chat returned 404, falling back to /api/generate")
+            prompt_text = ""
+            for m in messages:
+                role_label = m["role"].upper() if m["role"] != "system" else "SYSTEM"
+                prompt_text += f"{role_label}: {m['content']}\n"
+            prompt_text += "ASSISTANT:"
+
+            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                resp = client.post(
+                    f"{settings.ollama_host}/api/generate",
+                    json={"model": OLLAMA_MODEL, "prompt": prompt_text, "stream": False},
+                )
+
         resp.raise_for_status()
         data = resp.json()
-        reply = data["message"]["content"].strip()
-        logger.info(f"LLM reply: {len(reply)} chars")
-        return reply
+
+        if "message" in data:
+            return data["message"]["content"].strip()
+        elif "response" in data:
+            return data["response"].strip()
+        else:
+            logger.error(f"Unexpected Ollama response format: {data}")
+            raise ValueError("Unexpected Ollama response format")
+
     except httpx.RequestError as e:
         logger.error(f"Ollama request failed: {e}")
         raise
     except (KeyError, ValueError) as e:
         logger.error(f"Failed to parse Ollama response: {e}")
         raise
+
+
+def generate(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> str:
+    messages = build_messages(topic_prompt, level, context_turns, user_text)
+    reply = _ollama_chat(messages)
+    logger.info(f"LLM reply: {len(reply)} chars")
+    return reply
 
 
 def generate_review(session: dict) -> list[dict]:
@@ -84,21 +106,10 @@ def generate_review(session: dict) -> list[dict]:
     )
 
     try:
-        with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-            resp = client.post(
-                f"{settings.ollama_host}/api/chat",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                },
-            )
-        resp.raise_for_status()
-        data = resp.json()
-        content = data["message"]["content"].strip()
+        reply = _ollama_chat([{"role": "user", "content": prompt}])
 
         import json as json_parse
-        corrections = json_parse.loads(content)
+        corrections = json_parse.loads(reply)
         if not isinstance(corrections, list):
             logger.warning(f"Review response is not a list: {type(corrections)}")
             return []

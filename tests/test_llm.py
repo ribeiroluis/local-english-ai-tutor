@@ -79,7 +79,7 @@ class TestGenerate:
             mock_instance.post.return_value.raise_for_status.return_value = None
             mock_instance.post.return_value.json.return_value = {"done": True}
 
-            with pytest.raises(KeyError):
+            with pytest.raises(ValueError):
                 generate("Be friendly.", "A2", [], "hello")
 
     def test_generate_passes_correct_url(self):

@@ -95,6 +95,7 @@
 
   function startMicVisualizer(stream) {
     var ctx = getAudioCtx();
+    if (ctx.state === "suspended") ctx.resume();
     var source = ctx.createMediaStreamSource(stream);
     analyserNode = ctx.createAnalyser();
     analyserNode.fftSize = 256;
@@ -341,7 +342,7 @@
       })
       .catch(function (err) {
         logError("Converse error:", err);
-        setCircleState("idle", "Tap mic to start");
+        setCircleState("idle", "AI unavailable");
       });
   }
 
