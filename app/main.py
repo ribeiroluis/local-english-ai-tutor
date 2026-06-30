@@ -1,15 +1,20 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+
 from app.config import settings
 from app.services.logger import setup_logger
 
 logger = setup_logger()
 
-app = FastAPI(title="English AI Tutor")
 
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("Application starting up")
+    yield
+
+
+app = FastAPI(title="English AI Tutor", lifespan=lifespan)
 
 
 @app.get("/health")
