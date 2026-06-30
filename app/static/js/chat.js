@@ -11,6 +11,7 @@
   var mediaRecorder = null;
   var audioChunks = [];
   var isRecording = false;
+  var audioCtx = null;
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     addMessage("system", "Microphone not available in this browser.");
@@ -27,6 +28,70 @@
     bubble.textContent = text;
     messagesEl.appendChild(bubble);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function removeLastUserMessage() {
+    var msgs = messagesEl.querySelectorAll(".msg-user");
+    if (msgs.length > 0) msgs[msgs.length - 1].remove();
+  }
+
+  function floatTo16BitPCM(samples) {
+    var len = samples.length;
+    var buf = new ArrayBuffer(44 + len * 2);
+    var view = new DataView(buf);
+
+    function writeString(offset, str) {
+      for (var i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    }
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + len * 2, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true);
+    view.setUint32(28, 32000, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, "data");
+    view.setUint32(40, len * 2, true);
+
+    for (var i = 0; i < len; i++) {
+      var s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+
+    return new Blob([buf], { type: "audio/wav" });
+  }
+
+  function blobToArrayBuffer(blob) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onloadend = function () { resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  function webmToWav(blob) {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return blobToArrayBuffer(blob)
+      .then(function (buf) { return audioCtx.decodeAudioData(buf); })
+      .then(function (audioBuf) {
+        var channelData = audioBuf.getChannelData(0);
+        var ratio = audioBuf.sampleRate / 16000;
+        var outLen = Math.round(channelData.length / ratio);
+        var resampled = new Float32Array(outLen);
+        for (var i = 0; i < outLen; i++) {
+          var srcIdx = Math.round(i * ratio);
+          resampled[i] = channelData[Math.min(srcIdx, channelData.length - 1)];
+        }
+        return floatTo16BitPCM(resampled);
+      });
   }
 
   navigator.mediaDevices.getUserMedia({ audio: true })
@@ -48,13 +113,16 @@
         var blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
         audioChunks = [];
 
-        var formData = new FormData();
-        formData.append("file", blob, "recording.webm");
+        webmToWav(blob)
+          .then(function (wavBlob) {
+            var formData = new FormData();
+            formData.append("file", wavBlob, "recording.wav");
 
-        fetch("/api/transcribe", {
-          method: "POST",
-          body: formData,
-        })
+            return fetch("/api/transcribe", {
+              method: "POST",
+              body: formData,
+            });
+          })
           .then(function (r) { return r.json(); })
           .then(function (data) {
             indicatorEl.classList.add("hidden");
@@ -76,11 +144,6 @@
       addMessage("system", "Microphone access denied. Allow mic access and refresh.");
       recordBtn.disabled = true;
     });
-
-  function removeLastUserMessage() {
-    var msgs = messagesEl.querySelectorAll(".msg-user");
-    if (msgs.length > 0) msgs[msgs.length - 1].remove();
-  }
 
   recordBtn.addEventListener("mousedown", startRecording);
   recordBtn.addEventListener("mouseup", stopRecording);

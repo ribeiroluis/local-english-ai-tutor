@@ -23,15 +23,19 @@ def transcribe(audio_bytes: bytes) -> dict:
 
     model = _get_model()
 
-    with io.BytesIO(audio_bytes) as buf:
-        with wave.open(buf, "rb") as wf:
-            frames = wf.readframes(wf.getnframes())
-            sample_rate = wf.getframerate()
-            width = wf.getsampwidth()
+    try:
+        with io.BytesIO(audio_bytes) as buf:
+            with wave.open(buf, "rb") as wf:
+                frames = wf.readframes(wf.getnframes())
+                sample_rate = wf.getframerate()
+                width = wf.getsampwidth()
 
-    import numpy as np
-    dtype = {1: np.int16, 2: np.int16, 4: np.int32}.get(width, np.int16)
-    audio = np.frombuffer(frames, dtype=dtype).astype(np.float32) / 32768.0
+        import numpy as np
+        dtype = {1: np.int16, 2: np.int16, 4: np.int32}.get(width, np.int16)
+        audio = np.frombuffer(frames, dtype=dtype).astype(np.float32) / 32768.0
+    except Exception as e:
+        logger.error(f"Failed to decode audio: {e}")
+        return {"text": "", "confidence": 0.0, "duration_sec": 0.0, "error": str(e)}
 
     segments, info = model.transcribe(audio, beam_size=5, language="en")
     result = list(segments)
