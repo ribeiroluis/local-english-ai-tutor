@@ -2,7 +2,7 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.services.logger import setup_logger
 from app.services.session import create_session, load_user_progress
+from app.services.stt import transcribe
 
 logger = setup_logger()
 
@@ -66,3 +67,15 @@ async def get_progress():
 async def start_session(req: StartSessionRequest):
     session = create_session(req.topic, req.level)
     return {"session_id": session["session_id"]}
+
+
+@app.get("/chat")
+async def chat():
+    return FileResponse(STATIC_DIR / "chat.html")
+
+
+@app.post("/api/transcribe")
+async def api_transcribe(file: UploadFile = File(...)):
+    audio_bytes = await file.read()
+    result = transcribe(audio_bytes)
+    return result
