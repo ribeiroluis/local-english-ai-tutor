@@ -7,25 +7,51 @@ cd "$PROJECT_DIR"
 echo "=== English AI Tutor Setup ==="
 echo ""
 
+# Detect OS
+IS_WINDOWS=false
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*|Windows*) IS_WINDOWS=true ;;
+esac
+
 # --------------------------------------------------
 # 1. Python version check
 # --------------------------------------------------
 echo "[1/7] Checking Python..."
+check_python_version() {
+    local cmd="$1"
+    local full_ver major minor
+    full_ver=$("$cmd" --version 2>&1) || return 1
+    # Verify output starts with "Python" (not Microsoft Store shim)
+    case "$full_ver" in
+        Python*) ;;
+        *) return 1 ;;
+    esac
+    major=$(echo "$full_ver" | awk '{print $2}' | cut -d. -f1)
+    minor=$(echo "$full_ver" | awk '{print $2}' | cut -d. -f2)
+    [ -n "$major" ] && [ -n "$minor" ] && [ "$major" -ge 3 ] && [ "$minor" -ge 11 ]
+}
+
 PYTHON=""
-for cmd in python3 python; do
-    if command -v "$cmd" &>/dev/null; then
-        PY_VER=$("$cmd" --version 2>&1 | grep -oP '\d+\.\d+')
-        MAJOR=$(echo "$PY_VER" | cut -d. -f1)
-        MINOR=$(echo "$PY_VER" | cut -d. -f2)
-        if [ "$MAJOR" -ge 3 ] && [ "$MINOR" -ge 11 ]; then
+# On Windows, skip python3 (it may trigger Microsoft Store shim)
+if [ "$IS_WINDOWS" = false ]; then
+    for cmd in python3 python3.11 python3.12; do
+        if command -v "$cmd" &>/dev/null && check_python_version "$cmd"; then
             PYTHON="$cmd"
             break
         fi
+    done
+fi
+
+# Fallback: try python (works on both Windows and Unix)
+if [ -z "$PYTHON" ] && command -v python &>/dev/null; then
+    if check_python_version "python"; then
+        PYTHON="python"
     fi
-done
+fi
 
 if [ -z "$PYTHON" ]; then
-    echo "ERROR: Python 3.11+ required. Found: $("$cmd" --version 2>&1)"
+    echo "ERROR: Python 3.11+ required."
+    echo "  Run: python --version"
     exit 1
 fi
 echo "  Found: $($PYTHON --version)"
@@ -45,6 +71,9 @@ if [ -f ".venv/bin/activate" ]; then
     ACTIVATE=".venv/bin/activate"
 elif [ -f ".venv/Scripts/activate" ]; then
     ACTIVATE=".venv/Scripts/activate"
+else
+    echo "  ERROR: Cannot find activate script in .venv"
+    exit 1
 fi
 source "$ACTIVATE"
 echo "  Activated: $ACTIVATE"
@@ -61,68 +90,74 @@ pip install -r requirements.txt
 # --------------------------------------------------
 echo "[4/7] Ollama..."
 
-ollama_install() {
-    echo "  Ollama not found. Installing..."
-    case "$(uname -s)" in
-        Linux)
-            echo "  Detected Linux. Installing via official script..."
-            if command -v curl &>/dev/null; then
-                curl -fsSL https://ollama.com/install.sh | sh
-            elif command -v wget &>/dev/null; then
-                wget -qO- https://ollama.com/install.sh | sh
-            else
-                echo "  ERROR: curl or wget required to install Ollama."
-                echo "  Install manually: https://ollama.com/download"
-                exit 1
-            fi
-            ;;
-        Darwin)
-            echo "  Detected macOS. Installing via official script..."
-            curl -fsSL https://ollama.com/install.sh | sh
-            ;;
-        *)
-            echo "  Unsupported OS for auto-install."
-            echo "  Install manually: https://ollama.com/download"
-            exit 1
-            ;;
-    esac
-}
-
+# Check if Ollama is already installed
+OLLAMA_INSTALLED=false
 if command -v ollama &>/dev/null; then
+    OLLAMA_INSTALLED=true
     echo "  ollama binary found"
-else
-    ollama_install
+elif [ -f "/usr/local/bin/ollama" ]; then
+    OLLAMA_INSTALLED=true
+    PATH="/usr/local/bin:$PATH"
+    echo "  ollama found at /usr/local/bin"
 fi
 
-# Start Ollama if not running
-if ! curl -s http://localhost:11434/api/tags &>/dev/null; then
-    echo "  Starting Ollama server in background..."
-    ollama serve &>/dev/null &
-    sleep 3
+if [ "$OLLAMA_INSTALLED" = false ]; then
+    echo "  Installing Ollama..."
+    if command -v curl &>/dev/null; then
+        curl -fsSL https://ollama.com/install.sh | sh
+        OLLAMA_INSTALLED=true
+    elif command -v wget &>/dev/null; then
+        wget -qO- https://ollama.com/install.sh | sh
+        OLLAMA_INSTALLED=true
+    else
+        echo "  WARNING: curl not found. Cannot auto-install Ollama."
+        echo "  Install manually: https://ollama.com/download"
+    fi
 fi
 
-# Check again after starting
-if curl -s http://localhost:11434/api/tags &>/dev/null; then
-    echo "  Ollama server is running"
-else
-    echo "  WARNING: Ollama server not responding on http://localhost:11434"
-    echo "  Start manually: ollama serve"
+# Start Ollama server if not running
+OLLAMA_RUNNING=false
+if command -v ollama &>/dev/null; then
+    if curl -s --max-time 2 http://localhost:11434/api/tags &>/dev/null; then
+        OLLAMA_RUNNING=true
+        echo "  Ollama server is running"
+    else
+        echo "  Starting Ollama server in background..."
+        if [ "$IS_WINDOWS" = true ]; then
+            # Windows: start in background with nohup-like approach
+            (ollama serve &) &>/dev/null
+        else
+            nohup ollama serve &>/dev/null &
+        fi
+        sleep 3
+        if curl -s --max-time 2 http://localhost:11434/api/tags &>/dev/null; then
+            OLLAMA_RUNNING=true
+            echo "  Ollama server started"
+        else
+            echo "  WARNING: Could not start Ollama server."
+            echo "  Start manually: ollama serve"
+        fi
+    fi
 fi
 
 # Pull model
-MODEL="qwen2.5:3b"
-if ollama list 2>/dev/null | grep -q "$MODEL"; then
-    echo "  Model $MODEL already pulled"
+if [ "$OLLAMA_RUNNING" = true ]; then
+    MODEL="qwen2.5:3b"
+    if ollama list 2>/dev/null | grep -q "$MODEL"; then
+        echo "  Model $MODEL already pulled"
+    else
+        echo "  Pulling model $MODEL (may take several minutes)..."
+        ollama pull "$MODEL"
+        echo "  Model $MODEL pulled"
+    fi
 else
-    echo "  Pulling model $MODEL (may take several minutes)..."
-    ollama pull "$MODEL"
-    echo "  Model $MODEL pulled"
+    echo "  Skipping model pull (Ollama not running)"
 fi
 
 # --------------------------------------------------
-# 5. Piper TTS install + voice download
+# 5. Piper TTS voice download
 # --------------------------------------------------
-echo "[5/7] Piper TTS..."
+echo "[5/7] Piper TTS voice..."
 
 PIPER_VOICE_DIR="$PROJECT_DIR/app/data/voice"
 VOICE_FILE="$PIPER_VOICE_DIR/en_US-lessac-medium.onnx"
@@ -131,25 +166,26 @@ if [ ! -f "$VOICE_FILE" ]; then
     echo "  Downloading Piper voice (en_US-lessac-medium)..."
     mkdir -p "$PIPER_VOICE_DIR"
     if command -v curl &>/dev/null; then
-        curl -L -o "$VOICE_FILE" \
+        curl -L --connect-timeout 10 -o "$VOICE_FILE" \
             "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
-        curl -L -o "$VOICE_FILE.json" \
+        curl -L --connect-timeout 10 -o "$VOICE_FILE.json" \
             "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
-    elif command -v wget &>/dev/null; then
-        wget -O "$VOICE_FILE" \
-            "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
-        wget -O "$VOICE_FILE.json" \
-            "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+        echo "  Voice downloaded to $VOICE_FILE"
+    else
+        echo "  WARNING: curl not found. Download manually:"
+        echo "    https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+        echo "    Save to: $VOICE_FILE"
     fi
-    echo "  Voice downloaded to $VOICE_FILE"
+else
+    echo "  Voice file exists ($(du -h "$VOICE_FILE" 2>/dev/null | cut -f1 || stat -c%s "$VOICE_FILE" 2>/dev/null || echo "unknown size"))"
 fi
 
-# Check if piper binary exists
-if ! command -v piper &>/dev/null; then
-    echo "  WARNING: piper binary not found in PATH."
-    echo "  Install it: https://github.com/rhasspy/piper/releases"
-    echo "  Or build from source: https://github.com/rhasspy/piper"
-    echo "  (Voice file already downloaded; set PIPER_VOICE_PATH in .env)"
+# Check piper binary
+if command -v piper &>/dev/null; then
+    echo "  piper binary found in PATH"
+else
+    echo "  WARNING: piper binary not in PATH."
+    echo "  Install from: https://github.com/rhasspy/piper/releases"
 fi
 
 # --------------------------------------------------
@@ -164,25 +200,26 @@ if [ ! -f ".env" ]; then
         cp .env.example .env
         echo "  Created .env from .env.example"
     else
-        cat > .env <<-EOF
+        cat > .env <<-ENVEOF
 PORT=8000
 OLLAMA_HOST=http://localhost:11434
 WHISPER_MODEL_SIZE=base.en
 PIPER_VOICE_PATH=$VOICE_FILE
 LOG_LEVEL=INFO
-EOF
+ENVEOF
         echo "  Created .env with defaults"
     fi
 fi
 
-# Update PIPER_VOICE_PATH in .env if still empty
-CURRENT_PIPER=$(grep -oP '^PIPER_VOICE_PATH=\K.*' .env || true)
+# Update PIPER_VOICE_PATH in .env if empty or placeholder
+CURRENT_PIPER=$(grep -E '^PIPER_VOICE_PATH=' .env 2>/dev/null | cut -d= -f2- || true)
 if [ -z "$CURRENT_PIPER" ]; then
-    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-        WIN_PATH=$(cygpath -w "$VOICE_FILE" 2>/dev/null || echo "$VOICE_FILE")
-        sed -i "s|^PIPER_VOICE_PATH=.*|PIPER_VOICE_PATH=$WIN_PATH|" .env
+    # Escape for sed replacement
+    ESCAPED_VOICE=$(echo "$VOICE_FILE" | sed 's/[\/&]/\\&/g')
+    if grep -q '^PIPER_VOICE_PATH=' .env 2>/dev/null; then
+        sed -i "s|^PIPER_VOICE_PATH=.*|PIPER_VOICE_PATH=$ESCAPED_VOICE|" .env
     else
-        sed -i "s|^PIPER_VOICE_PATH=.*|PIPER_VOICE_PATH=$VOICE_FILE|" .env
+        echo "PIPER_VOICE_PATH=$VOICE_FILE" >> .env
     fi
     echo "  Updated PIPER_VOICE_PATH in .env"
 fi
@@ -193,7 +230,7 @@ fi
 echo "[7/7] Health checks..."
 
 # Ollama check
-if curl -s http://localhost:11434/api/tags &>/dev/null; then
+if curl -s --max-time 2 http://localhost:11434/api/tags &>/dev/null; then
     echo "  [OK] Ollama reachable at http://localhost:11434"
 else
     echo "  [FAIL] Ollama not reachable — run: ollama serve"
@@ -208,7 +245,7 @@ fi
 
 # Voice file check
 if [ -f "$VOICE_FILE" ]; then
-    echo "  [OK] Piper voice file present ($(du -h "$VOICE_FILE" | cut -f1))"
+    echo "  [OK] Piper voice file present"
 else
     echo "  [FAIL] Voice file missing at $VOICE_FILE"
 fi
