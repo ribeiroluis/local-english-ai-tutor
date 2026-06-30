@@ -9,5 +9,9 @@ if [ ! -d ".venv" ]; then
     exit 1
 fi
 
-source .venv/bin/activate
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+elif [ -f ".venv/Scripts/activate" ]; then
+    source .venv/Scripts/activate
+fi
 uvicorn app.main:app --reload
