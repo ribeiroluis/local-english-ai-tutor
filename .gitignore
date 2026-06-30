@@ -9,3 +9,5 @@ __pycache__/
 Thumbs.db
 app/data/sessions/
 app/data/user_progress.json
+app/data/voice/
+app/data/piper/

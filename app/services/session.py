@@ -51,6 +51,37 @@ def get_session(session_id: str) -> dict | None:
         return None
 
 
+def add_turn(session_id: str, user_text: str, ai_text: str) -> dict:
+    session = get_session(session_id)
+    if session is None:
+        raise ValueError(f"Session not found: {session_id}")
+
+    session["turns"].append({
+        "role": "user",
+        "text": user_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    session["turns"].append({
+        "role": "assistant",
+        "text": ai_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    filepath = SESSIONS_DIR / f"{session_id}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(session, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Turn added to session {session_id}: user={len(user_text)} chars, ai={len(ai_text)} chars")
+    return session
+
+
+def update_session(session: dict):
+    session_id = session["session_id"]
+    filepath = SESSIONS_DIR / f"{session_id}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(session, f, indent=2, ensure_ascii=False)
+
+
 def save_user_progress(topic: str, level: str):
     PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = {"last_topic": topic, "last_level": level}

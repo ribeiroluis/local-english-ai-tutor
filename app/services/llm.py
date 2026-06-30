@@ -1,0 +1,120 @@
+import httpx
+from app.config import settings
+from app.services.logger import setup_logger
+
+logger = setup_logger()
+
+OLLAMA_MODEL = "qwen2.5:3b"
+OLLAMA_TIMEOUT = 30.0
+
+LEVEL_INSTRUCTIONS = {
+    "A1": "Use very simple sentences and basic vocabulary. Speak slowly and clearly. Keep responses under 3 sentences.",
+    "A2": "Use simple sentences. Avoid complex grammar. Keep responses under 4 sentences.",
+    "B1": "Use moderate complexity. Natural conversational English.",
+    "B2": "Use natural conversational English. Occasional idioms are okay.",
+    "C1": "Use sophisticated vocabulary and natural idioms.",
+    "C2": "Use native-level English with full complexity.",
+}
+
+
+def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> list[dict]:
+    level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
+    system = f"{topic_prompt}\n\nLevel: {level}. {level_instruction}"
+
+    messages = [{"role": "system", "content": system}]
+
+    for turn in context_turns[-20:]:
+        messages.append({"role": turn["role"], "content": turn["text"]})
+
+    messages.append({"role": "user", "content": user_text})
+    return messages
+
+
+def _ollama_chat(messages: list[dict]) -> str:
+    url = f"{settings.ollama_host}/api/chat"
+    payload = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
+
+    try:
+        with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+            resp = client.post(url, json=payload)
+
+        if resp.status_code == 404:
+            logger.info("Ollama /api/chat returned 404, falling back to /api/generate")
+            prompt_text = ""
+            for m in messages:
+                role_label = m["role"].upper() if m["role"] != "system" else "SYSTEM"
+                prompt_text += f"{role_label}: {m['content']}\n"
+            prompt_text += "ASSISTANT:"
+
+            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                resp = client.post(
+                    f"{settings.ollama_host}/api/generate",
+                    json={"model": OLLAMA_MODEL, "prompt": prompt_text, "stream": False},
+                )
+
+        resp.raise_for_status()
+        data = resp.json()
+
+        if "message" in data:
+            return data["message"]["content"].strip()
+        elif "response" in data:
+            return data["response"].strip()
+        else:
+            logger.error(f"Unexpected Ollama response format: {data}")
+            raise ValueError("Unexpected Ollama response format")
+
+    except httpx.RequestError as e:
+        logger.error(f"Ollama request failed: {e}")
+        raise
+    except (KeyError, ValueError) as e:
+        logger.error(f"Failed to parse Ollama response: {e}")
+        raise
+
+
+def generate(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> str:
+    messages = build_messages(topic_prompt, level, context_turns, user_text)
+    reply = _ollama_chat(messages)
+    logger.info(f"LLM reply: {len(reply)} chars")
+    return reply
+
+
+def generate_review(session: dict) -> list[dict]:
+    turns = session.get("turns", [])
+    conversation_parts = []
+
+    for i in range(0, len(turns) - 1, 2):
+        user_turn = turns[i]
+        ai_turn = turns[i + 1]
+        if user_turn["role"] == "user" and ai_turn["role"] == "assistant":
+            conversation_parts.append(f"User: {user_turn['text']}\nAI: {ai_turn['text']}")
+
+    if not conversation_parts:
+        return []
+
+    conversation_text = "\n".join(conversation_parts)
+
+    prompt = (
+        "You are an English tutor. Review the conversation below and identify errors "
+        "made by the student (the User). For each error, provide a JSON object with:\n"
+        "- original_text: the user's exact text with the error\n"
+        "- corrected_text: the corrected version\n"
+        "- error_type: one of: grammar, verb_tense, article, preposition, vocabulary, word_order, agreement, other\n"
+        "- explanation_pt: explanation in Brazilian Portuguese\n\n"
+        "Return ONLY a JSON array of error objects. If no errors, return an empty array.\n\n"
+        f"Conversation:\n{conversation_text}\n\n"
+        "JSON corrections:"
+    )
+
+    try:
+        reply = _ollama_chat([{"role": "user", "content": prompt}])
+
+        import json as json_parse
+        corrections = json_parse.loads(reply)
+        if not isinstance(corrections, list):
+            logger.warning(f"Review response is not a list: {type(corrections)}")
+            return []
+        logger.info(f"Review generated: {len(corrections)} corrections")
+        return corrections
+    except (httpx.RequestError, KeyError, ValueError, json_parse.JSONDecodeError) as e:
+        logger.error(f"Review generation failed: {e}")
+        return []

@@ -2,15 +2,23 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.llm import generate, generate_review
 from app.services.logger import setup_logger
-from app.services.session import create_session, load_user_progress
+from app.services.session import (
+    add_turn,
+    create_session,
+    get_session,
+    load_user_progress,
+    update_session,
+)
 from app.services.stt import transcribe
+from app.services.tts import synthesize
 
 logger = setup_logger()
 
@@ -32,6 +40,10 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 class StartSessionRequest(BaseModel):
     topic: str
     level: str
+
+
+class ReviewRequest(BaseModel):
+    session_id: str
 
 
 @app.get("/health")
@@ -69,13 +81,67 @@ async def start_session(req: StartSessionRequest):
     return {"session_id": session["session_id"]}
 
 
-@app.get("/chat")
-async def chat():
-    return FileResponse(STATIC_DIR / "chat.html")
-
-
 @app.post("/api/transcribe")
 async def api_transcribe(file: UploadFile = File(...)):
     audio_bytes = await file.read()
     result = transcribe(audio_bytes)
     return result
+
+
+@app.post("/api/converse")
+async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)):
+    audio_bytes = await file.read()
+
+    stt_result = transcribe(audio_bytes)
+    user_text = stt_result.get("text", "")
+    if not user_text:
+        logger.warning(f"Empty transcription for session {session_id}")
+        raise HTTPException(status_code=400, detail="Could not understand audio")
+
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    with open(TOPICS_FILE, "r", encoding="utf-8") as f:
+        topics = json.load(f)
+    topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
+
+    try:
+        ai_reply = generate(topic["system_prompt"], session["level"], session["turns"], user_text)
+    except Exception as e:
+        logger.error(f"LLM generation failed: {e}")
+        raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
+
+    try:
+        audio_wav = synthesize(ai_reply)
+        add_turn(session_id, user_text, ai_reply)
+        return Response(
+            content=audio_wav,
+            media_type="audio/wav",
+            headers={"X-Transcript": user_text, "X-Reply": ai_reply},
+        )
+    except Exception as e:
+        logger.error(f"TTS failed for session {session_id}: {e}")
+        add_turn(session_id, user_text, ai_reply)
+        return Response(
+            content=b"",
+            media_type="audio/wav",
+            headers={
+                "X-Transcript": user_text,
+                "X-Reply": ai_reply,
+                "X-TTS-Error": str(e),
+            },
+        )
+
+
+@app.post("/api/review")
+async def api_review(req: ReviewRequest):
+    session = get_session(req.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    corrections = generate_review(session)
+    session["corrections"] = corrections
+    update_session(session)
+
+    return {"corrections": corrections}
