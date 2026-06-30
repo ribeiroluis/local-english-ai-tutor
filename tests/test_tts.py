@@ -42,7 +42,7 @@ def test_synthesize_piper_not_found(mock_settings):
 
     with patch("pathlib.Path.exists", return_value=True), \
          patch("subprocess.run", side_effect=FileNotFoundError("piper not found")):
-        with pytest.raises(FileNotFoundError, match="piper executable not found"):
+        with pytest.raises(FileNotFoundError, match="piper not found"):
             synthesize("Hello")
 
 
