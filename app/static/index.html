@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>English AI Tutor</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div id="welcome-screen">
+    <header class="welcome-header">
+      <h1>English AI Tutor</h1>
+      <p class="subtitle">Practice spoken English with AI</p>
+    </header>
+
+    <section class="topic-section">
+      <h2>Choose a topic</h2>
+      <div id="topic-grid" class="topic-grid">
+        <div class="topic-card is-loading" data-topic-id="">
+          <div class="card-skeleton"></div>
+        </div>
+        <div class="topic-card is-loading" data-topic-id="">
+          <div class="card-skeleton"></div>
+        </div>
+        <div class="topic-card is-loading" data-topic-id="">
+          <div class="card-skeleton"></div>
+        </div>
+        <div class="topic-card is-loading" data-topic-id="">
+          <div class="card-skeleton"></div>
+        </div>
+        <div class="topic-card is-loading" data-topic-id="">
+          <div class="card-skeleton"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="level-section">
+      <h2>Your level</h2>
+      <div id="level-selector" class="level-selector">
+        <button class="level-btn" data-level="A1">A1</button>
+        <button class="level-btn" data-level="A2">A2</button>
+        <button class="level-btn" data-level="B1">B1</button>
+        <button class="level-btn" data-level="B2">B2</button>
+        <button class="level-btn" data-level="C1">C1</button>
+        <button class="level-btn" data-level="C2">C2</button>
+      </div>
+    </section>
+
+    <button id="start-btn" class="start-btn" disabled>Start Conversation</button>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

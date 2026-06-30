@@ -12,10 +12,17 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 
+# Detect OS and set activation path
+if [ -f ".venv/bin/activate" ]; then
+    ACTIVATE=".venv/bin/activate"
+elif [ -f ".venv/Scripts/activate" ]; then
+    ACTIVATE=".venv/Scripts/activate"
+fi
+
 # Activate and install deps
-source .venv/bin/activate
+source "$ACTIVATE"
 echo "Installing dependencies..."
-pip install --upgrade pip
+python -m pip install --upgrade pip 2>/dev/null || true
 pip install -r requirements.txt
 
 # Create data and log directories
@@ -29,4 +36,10 @@ fi
 
 echo ""
 echo "=== Setup complete ==="
-echo "Run: uvicorn app.main:app"
+echo ""
+echo "To start the app:"
+echo "  source $ACTIVATE"
+echo "  uvicorn app.main:app --reload"
+echo ""
+echo "Or run:"
+echo "  bash scripts/run.sh"
