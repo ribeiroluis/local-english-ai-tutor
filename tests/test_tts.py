@@ -1,31 +1,47 @@
-import subprocess
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
+from app.services import tts
 from app.services.tts import synthesize
 
-SIXTEEN_BIT_SILENCE = b"\x00\x00" * 22050  # 1 second of silence at 22050Hz
+
+def _make_chunk(audio: np.ndarray):
+    chunk = MagicMock()
+    chunk.audio_float_array = audio
+    return chunk
 
 
-@patch("app.services.tts.settings")
-def test_synthesize_success(mock_settings):
-    mock_settings.piper_voice_path = "/fake/voice/path"
+@pytest.fixture(autouse=True)
+def _clear_voice_cache():
+    tts._voice = None
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = SIXTEEN_BIT_SILENCE
-        mock_run.return_value.stderr = b""
 
+@pytest.fixture
+def mock_path(tmp_path):
+    """Create a real temp file to use as a fake voice path."""
+    voice_file = tmp_path / "voice.onnx"
+    voice_file.write_text("fake model")
+    return str(voice_file)
+
+
+@patch("app.services.tts.PiperVoice")
+def test_synthesize_success(mock_pv, mock_path):
+    voice_path = mock_path
+    mock_voice = MagicMock()
+    mock_pv.load.return_value = mock_voice
+
+    audio = np.array([0.0, 0.1, -0.1, 0.0], dtype=np.float32)
+    mock_voice.synthesize.return_value = [_make_chunk(audio)]
+
+    with patch("app.services.tts.settings") as mock_settings:
+        mock_settings.piper_voice_path = voice_path
         result = synthesize("Hello world")
-        assert isinstance(result, bytes)
-        assert len(result) > 44  # WAV header + data
 
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args[0] == "piper"
-        assert "--model" in args
+    assert isinstance(result, bytes)
+    assert len(result) > 44
+    mock_voice.synthesize.assert_called_once_with("Hello world")
 
 
 @patch("app.services.tts.settings")
@@ -36,35 +52,44 @@ def test_synthesize_voice_not_found(mock_settings):
         synthesize("Hello")
 
 
-@patch("app.services.tts.settings")
-def test_synthesize_piper_not_found(mock_settings):
-    mock_settings.piper_voice_path = "/fake/voice/path"
+@patch("app.services.tts.PiperVoice")
+def test_synthesize_piper_fails(mock_pv, mock_path):
+    voice_path = mock_path
+    mock_pv.load.side_effect = RuntimeError("ONNX error")
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("subprocess.run", side_effect=FileNotFoundError("piper not found")):
-        with pytest.raises(FileNotFoundError, match="piper not found"):
+    with patch("app.services.tts.settings") as mock_settings:
+        mock_settings.piper_voice_path = voice_path
+        with pytest.raises(RuntimeError, match="ONNX error"):
             synthesize("Hello")
 
 
-@patch("app.services.tts.settings")
-def test_synthesize_piper_fails(mock_settings):
-    mock_settings.piper_voice_path = "/fake/voice/path"
+@patch("app.services.tts.PiperVoice")
+def test_synthesize_multiple_chunks(mock_pv, mock_path):
+    voice_path = mock_path
+    mock_voice = MagicMock()
+    mock_pv.load.return_value = mock_voice
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 1
-        mock_run.return_value.stdout = b""
-        mock_run.return_value.stderr = b"model file not found"
+    chunk1 = _make_chunk(np.array([0.0, 0.5], dtype=np.float32))
+    chunk2 = _make_chunk(np.array([-0.5, 0.0], dtype=np.float32))
+    mock_voice.synthesize.return_value = [chunk1, chunk2]
 
-        with pytest.raises(RuntimeError, match="Piper TTS failed"):
-            synthesize("Hello")
+    with patch("app.services.tts.settings") as mock_settings:
+        mock_settings.piper_voice_path = voice_path
+        result = synthesize("Hello world")
+
+    assert isinstance(result, bytes)
+    assert len(result) > 44
 
 
-@patch("app.services.tts.settings")
-def test_synthesize_timeout(mock_settings):
-    mock_settings.piper_voice_path = "/fake/voice/path"
+@patch("app.services.tts.PiperVoice")
+def test_synthesize_empty_text(mock_pv, mock_path):
+    voice_path = mock_path
+    mock_voice = MagicMock()
+    mock_pv.load.return_value = mock_voice
 
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="piper", timeout=30)):
-        with pytest.raises(subprocess.TimeoutExpired):
-            synthesize("Hello")
+    mock_voice.synthesize.return_value = []
+
+    with patch("app.services.tts.settings") as mock_settings:
+        mock_settings.piper_voice_path = voice_path
+        with pytest.raises(ValueError, match="need at least one array"):
+            synthesize("")

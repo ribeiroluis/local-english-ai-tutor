@@ -14,4 +14,6 @@ if [ -f ".venv/bin/activate" ]; then
 elif [ -f ".venv/Scripts/activate" ]; then
     source .venv/Scripts/activate
 fi
+
+: > "app/logs/app.log" 2>/dev/null || true
 uvicorn app.main:app --reload
