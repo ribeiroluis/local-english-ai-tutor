@@ -7,3 +7,5 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+app/data/sessions/
+app/data/user_progress.json
