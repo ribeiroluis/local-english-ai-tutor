@@ -23,9 +23,8 @@ def build_messages(topic_prompt: str, level: str, context_turns: list[dict], use
 
     messages = [{"role": "system", "content": system}]
 
-    for turn in context_turns[-10:]:
-        messages.append({"role": "user", "content": turn["text"]})
-        messages.append({"role": "assistant", "content": turn["text"]})
+    for turn in context_turns[-20:]:
+        messages.append({"role": turn["role"], "content": turn["text"]})
 
     messages.append({"role": "user", "content": user_text})
     return messages
@@ -58,15 +57,19 @@ def generate(topic_prompt: str, level: str, context_turns: list[dict], user_text
 
 
 def generate_review(session: dict) -> list[dict]:
-    user_turns = [t for t in session["turns"] if t["role"] == "user"]
-    if not user_turns:
+    turns = session.get("turns", [])
+    conversation_parts = []
+
+    for i in range(0, len(turns) - 1, 2):
+        user_turn = turns[i]
+        ai_turn = turns[i + 1]
+        if user_turn["role"] == "user" and ai_turn["role"] == "assistant":
+            conversation_parts.append(f"User: {user_turn['text']}\nAI: {ai_turn['text']}")
+
+    if not conversation_parts:
         return []
 
-    conversation_text = "\n".join(
-        f"User: {t['text']}\nAI: {session['turns'][i+1]['text']}"
-        for i, t in enumerate(user_turns)
-        if i + 1 < len(session["turns"]) and session["turns"][i + 1]["role"] == "assistant"
-    )
+    conversation_text = "\n".join(conversation_parts)
 
     prompt = (
         "You are an English tutor. Review the conversation below and identify errors "

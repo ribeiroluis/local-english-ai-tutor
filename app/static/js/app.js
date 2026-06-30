@@ -289,8 +289,11 @@
         var outLen = Math.round(channelData.length / ratio);
         var resampled = new Float32Array(outLen);
         for (var i = 0; i < outLen; i++) {
-          var srcIdx = Math.round(i * ratio);
-          resampled[i] = channelData[Math.min(srcIdx, channelData.length - 1)];
+          var srcIdx = i * ratio;
+          var lo = Math.floor(srcIdx);
+          var hi = Math.min(lo + 1, channelData.length - 1);
+          var frac = srcIdx - lo;
+          resampled[i] = channelData[lo] * (1 - frac) + channelData[hi] * frac;
         }
         return floatTo16BitPCM(resampled);
       });
@@ -320,14 +323,9 @@
       .then(function (result) {
         log("AI reply:", result.reply);
 
-        if (result.ttsError) {
-          logError("TTS failed:", result.ttsError);
-          setCircleState("idle", "Tap mic to start");
-          return;
-        }
-
-        if (result.blob.size === 0) {
-          setCircleState("idle", "Tap mic to start");
+        if (result.ttsError || result.blob.size === 0) {
+          logError("TTS failed:", result.ttsError || "empty response");
+          setCircleState("idle", "AI replied (no audio)");
           return;
         }
 

@@ -26,8 +26,17 @@ class TestBuildMessages:
     def test_build_messages_context_window(self):
         turns = [{"text": f"turn {i}", "role": "user" if i % 2 == 0 else "assistant"} for i in range(20)]
         messages = build_messages("Test.", "A2", turns, "final")
-        user_messages = [m for m in messages if m["role"] == "user"]
-        assert len(user_messages) <= 12
+        history_roles = [m["role"] for m in messages[1:-1]]
+        assert history_roles.count("user") == 10
+        assert history_roles.count("assistant") == 10
+
+    def test_build_messages_context_window_truncated(self):
+        turns = [{"text": f"turn {i}", "role": "user" if i % 2 == 0 else "assistant"} for i in range(50)]
+        messages = build_messages("Test.", "B1", turns, "final")
+        history_contents = [m["content"] for m in messages[1:-1]]
+        assert len(history_contents) == 20
+        assert history_contents[0] == "turn 30"
+        assert history_contents[-1] == "turn 49"
 
     def test_build_messages_unknown_level(self):
         messages = build_messages("Test.", "UNKNOWN", [], "hello")
