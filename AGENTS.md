@@ -43,6 +43,14 @@ MVP: speak → STT → LLM → TTS → correction at session end.
 - No decorative animations (only state transitions).
 - No side-stripe borders, gradient text, glassmorphism.
 
+## Git Workflow
+- Branch por issue: `issue-<numero>-<descricao-curta>` (ex: `issue-1-project-scaffold`)
+- Commits atômicos: um commit por mudança lógica (ex: "Add requirements.txt", "Create FastAPI app", "Add topics.json")
+- Mensagens de commit: imperativo, inglês, sem prefixo, ex: "Create FastAPI app with health check"
+- PR por issue: abrir PR apontando para `main`, aguardar merge manual do usuário
+- Após merge: deletar branch
+- Usuário faz merge manualmente no git (nunca usar merge automático)
+
 ## Test Strategy
 - STT: real WAV fixtures in `tests/fixtures/audio/` (user records them).
 - LLM: mock Ollama HTTP, test prompt builder + response parsing.
