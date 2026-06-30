@@ -22,7 +22,7 @@ fi
 # Activate and install deps
 source "$ACTIVATE"
 echo "Installing dependencies..."
-pip install --upgrade pip
+python -m pip install --upgrade pip 2>/dev/null || true
 pip install -r requirements.txt
 
 # Create data and log directories
