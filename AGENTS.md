@@ -45,8 +45,14 @@ MVP: speak → STT → LLM → TTS → correction at session end.
 
 ## Git Workflow
 - Branch por issue: `issue-<numero>-<descricao-curta>` (ex: `issue-1-project-scaffold`)
-- Commits atômicos: um commit por mudança lógica (ex: "Add requirements.txt", "Create FastAPI app", "Add topics.json")
-- Mensagens de commit: imperativo, inglês, sem prefixo, ex: "Create FastAPI app with health check"
+- Commits atômicos: um commit por mudança lógica
+- Mensagens de commit: conventional commits em português, ex:
+  - `feat: add welcome screen with topic selection`
+  - `fix: handle missing topics.json gracefully`
+  - `refactor: extract session service from routes`
+  - `chore: add session data to gitignore`
+  - `test: add tests for welcome endpoints`
+  - `docs: update gitflow instructions`
 - PR por issue: abrir PR automaticamente apontando para `main` assim que implementação finalizar
 - Após merge: deletar branch
 - Usuário faz merge manualmente no git (nunca usar merge automático)
