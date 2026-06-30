@@ -29,4 +29,10 @@ fi
 
 echo ""
 echo "=== Setup complete ==="
-echo "Run: uvicorn app.main:app"
+echo ""
+echo "To start the app:"
+echo "  source .venv/bin/activate"
+echo "  uvicorn app.main:app --reload"
+echo ""
+echo "Or run:"
+echo "  bash scripts/run.sh"

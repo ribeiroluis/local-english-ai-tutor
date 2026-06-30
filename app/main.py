@@ -45,8 +45,15 @@ async def index():
 
 @app.get("/api/topics")
 async def get_topics():
-    with open(TOPICS_FILE, "r", encoding="utf-8") as f:
-        topics = json.load(f)
+    try:
+        with open(TOPICS_FILE, "r", encoding="utf-8") as f:
+            topics = json.load(f)
+    except FileNotFoundError:
+        logger.error(f"Topics file not found: {TOPICS_FILE}")
+        raise HTTPException(status_code=500, detail="Topics data not available")
+    except json.JSONDecodeError:
+        logger.error(f"Topics file corrupted: {TOPICS_FILE}")
+        raise HTTPException(status_code=500, detail="Topics data corrupted")
     return [{"id": t["id"], "name": t["name"], "description": t["description"]} for t in topics]
 
 

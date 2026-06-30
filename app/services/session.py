@@ -27,8 +27,12 @@ def create_session(topic: str, level: str) -> dict:
     }
 
     filepath = SESSIONS_DIR / f"{session_id}.json"
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(session, f, indent=2, ensure_ascii=False)
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(session, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        logger.error(f"Failed to write session file {filepath}: {e}")
+        raise
 
     save_user_progress(topic, level)
     logger.info(f"Session created: {session_id} (topic={topic}, level={level})")
@@ -39,19 +43,31 @@ def get_session(session_id: str) -> dict | None:
     filepath = SESSIONS_DIR / f"{session_id}.json"
     if not filepath.exists():
         return None
-    with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        logger.error(f"Corrupted session file {filepath}: {e}")
+        return None
 
 
 def save_user_progress(topic: str, level: str):
     PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = {"last_topic": topic, "last_level": level}
-    with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    try:
+        with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except IOError as e:
+        logger.error(f"Failed to write progress file {PROGRESS_FILE}: {e}")
+        raise
 
 
 def load_user_progress() -> dict:
     if not PROGRESS_FILE.exists():
         return {"last_topic": DEFAULT_TOPIC, "last_level": DEFAULT_LEVEL}
-    with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        logger.error(f"Corrupted progress file {PROGRESS_FILE}: {e}")
+        return {"last_topic": DEFAULT_TOPIC, "last_level": DEFAULT_LEVEL}
