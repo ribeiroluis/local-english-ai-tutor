@@ -13,7 +13,20 @@
   var isRecording = false;
   var audioCtx = null;
 
+  function log() {
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift("[chat.js]");
+    console.log.apply(console, args);
+  }
+
+  function logError() {
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift("[chat.js ERROR]");
+    console.error.apply(console, args);
+  }
+
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    logError("getUserMedia not available");
     addMessage("system", "Microphone not available in this browser.");
     recordBtn.disabled = true;
     return;
@@ -65,24 +78,28 @@
       view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     }
 
-    return new Blob([buf], { type: "audio/wav" });
+    var blob = new Blob([buf], { type: "audio/wav" });
+    log("WAV encoded", len, "samples,", (len / 16000).toFixed(2), "seconds");
+    return blob;
   }
 
   function blobToArrayBuffer(blob) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
       reader.onloadend = function () { resolve(reader.result); };
-      reader.onerror = reject;
+      reader.onerror = function () { reject(new Error("FileReader failed")); };
       reader.readAsArrayBuffer(blob);
     });
   }
 
   function webmToWav(blob) {
+    log("Converting webm to WAV, size:", (blob.size / 1024).toFixed(1), "KB");
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     return blobToArrayBuffer(blob)
       .then(function (buf) { return audioCtx.decodeAudioData(buf); })
       .then(function (audioBuf) {
         var channelData = audioBuf.getChannelData(0);
+        log("Decoded audio:", audioBuf.sampleRate, "Hz,", channelData.length, "samples,", (channelData.length / audioBuf.sampleRate).toFixed(2), "sec");
         var ratio = audioBuf.sampleRate / 16000;
         var outLen = Math.round(channelData.length / ratio);
         var resampled = new Float32Array(outLen);
@@ -90,23 +107,33 @@
           var srcIdx = Math.round(i * ratio);
           resampled[i] = channelData[Math.min(srcIdx, channelData.length - 1)];
         }
+        log("Resampled to 16000 Hz:", resampled.length, "samples");
         return floatTo16BitPCM(resampled);
       });
   }
 
   navigator.mediaDevices.getUserMedia({ audio: true })
     .then(function (stream) {
+      log("Microphone access granted");
+
       var options = { mimeType: "audio/webm;codecs=opus" };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         options = { mimeType: "audio/webm" };
       }
       mediaRecorder = new MediaRecorder(stream, options);
+      log("MediaRecorder created:", mediaRecorder.mimeType);
 
       mediaRecorder.ondataavailable = function (e) {
-        if (e.data.size > 0) audioChunks.push(e.data);
+        if (e.data.size > 0) {
+          audioChunks.push(e.data);
+          log("Audio chunk:", (e.data.size / 1024).toFixed(1), "KB");
+        }
       };
 
       mediaRecorder.onstop = function () {
+        var totalSize = audioChunks.reduce(function (sum, c) { return sum + c.size; }, 0);
+        log("Recording stopped, total:", (totalSize / 1024).toFixed(1), "KB, chunks:", audioChunks.length);
+
         addMessage("user", "Processing audio...");
         indicatorEl.classList.remove("hidden");
 
@@ -115,6 +142,7 @@
 
         webmToWav(blob)
           .then(function (wavBlob) {
+            log("Sending WAV to backend, size:", (wavBlob.size / 1024).toFixed(1), "KB");
             var formData = new FormData();
             formData.append("file", wavBlob, "recording.wav");
 
@@ -123,36 +151,52 @@
               body: formData,
             });
           })
-          .then(function (r) { return r.json(); })
+          .then(function (r) {
+            log("Backend response status:", r.status);
+            return r.json();
+          })
           .then(function (data) {
             indicatorEl.classList.add("hidden");
             removeLastUserMessage();
+            log("Transcription result:", JSON.stringify(data));
             if (data.text) {
               addMessage("user", data.text);
             } else {
               addMessage("system", "Could not understand. Try again.");
+              logError("Empty transcription. Backend response:", JSON.stringify(data));
             }
           })
-          .catch(function () {
+          .catch(function (err) {
             indicatorEl.classList.add("hidden");
             removeLastUserMessage();
             addMessage("system", "Transcription failed. Try again.");
+            logError("Transcription error:", err);
           });
       };
+
+      mediaRecorder.onerror = function (err) {
+        logError("MediaRecorder error:", err);
+      };
     })
-    .catch(function () {
+    .catch(function (err) {
+      logError("getUserMedia denied:", err);
       addMessage("system", "Microphone access denied. Allow mic access and refresh.");
       recordBtn.disabled = true;
     });
 
-  recordBtn.addEventListener("mousedown", startRecording);
-  recordBtn.addEventListener("mouseup", stopRecording);
-  recordBtn.addEventListener("mouseleave", stopRecording);
-  recordBtn.addEventListener("touchstart", function (e) { e.preventDefault(); startRecording(); }, { passive: true });
-  recordBtn.addEventListener("touchend", function (e) { e.preventDefault(); stopRecording(); }, { passive: true });
+  recordBtn.addEventListener("click", toggleRecording);
+
+  function toggleRecording() {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }
 
   function startRecording() {
     if (!mediaRecorder || isRecording) return;
+    log("Recording started");
     isRecording = true;
     audioChunks = [];
     mediaRecorder.start();
@@ -161,6 +205,7 @@
 
   function stopRecording() {
     if (!mediaRecorder || !isRecording) return;
+    log("Recording stopping...");
     isRecording = false;
     if (mediaRecorder.state === "recording") {
       mediaRecorder.stop();
