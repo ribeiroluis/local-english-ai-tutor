@@ -250,7 +250,9 @@ h2 {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  transition: background 0.3s, box-shadow 0.3s, transform 0.3s;
+  background: var(--color-border);
+  transition: background 0.3s, box-shadow 0.3s;
+  will-change: transform;
 }
 
 .circle-indicator.idle {
@@ -260,32 +262,17 @@ h2 {
 
 .circle-indicator.recording {
   background: var(--color-red);
-  animation: pulse-red 1.5s infinite;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.5);
 }
 
 .circle-indicator.processing {
   background: var(--color-primary);
-  animation: pulse-blue 1.5s infinite;
+  box-shadow: 0 0 24px rgba(37, 99, 235, 0.5);
 }
 
 .circle-indicator.playing {
   background: var(--color-green);
-  animation: pulse-green 1.5s infinite;
-}
-
-@keyframes pulse-red {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  50% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
-}
-
-@keyframes pulse-blue {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
-  50% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(37, 99, 235, 0); }
-}
-
-@keyframes pulse-green {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
-  50% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(34, 197, 94, 0); }
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.5);
 }
 
 .circle-label {

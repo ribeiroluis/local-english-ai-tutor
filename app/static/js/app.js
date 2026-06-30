@@ -5,7 +5,12 @@
   var mediaRecorder = null;
   var audioChunks = [];
   var isRecording = false;
+  var isPlaying = false;
   var audioCtx = null;
+  var micStream = null;
+  var analyserNode = null;
+  var visualizerRAF = null;
+  var playbackSource = null;
 
   var welcomeScreen = document.getElementById("welcome-screen");
   var chatScreen = document.getElementById("chat-screen");
@@ -34,6 +39,11 @@
     console.error.apply(console, args);
   }
 
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
   function showWelcome() {
     welcomeScreen.classList.remove("hidden");
     chatScreen.classList.add("hidden");
@@ -53,7 +63,12 @@
   }
 
   function setCircleState(state, label) {
+    if (visualizerRAF) {
+      cancelAnimationFrame(visualizerRAF);
+      visualizerRAF = null;
+    }
     circleIndicator.className = "circle-indicator " + state;
+    circleIndicator.style.transform = "scale(1)";
     circleLabel.textContent = label;
   }
 
@@ -61,6 +76,85 @@
     var div = document.createElement("div");
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
+  }
+
+  function visualize() {
+    if (!analyserNode) return;
+    var data = new Uint8Array(analyserNode.frequencyBinCount);
+    analyserNode.getByteTimeDomainData(data);
+    var sum = 0;
+    for (var i = 0; i < data.length; i++) {
+      var val = (data[i] - 128) / 128;
+      sum += val * val;
+    }
+    var rms = Math.sqrt(sum / data.length);
+    var scale = 1 + rms * 0.3;
+    circleIndicator.style.transform = "scale(" + scale + ")";
+    visualizerRAF = requestAnimationFrame(visualize);
+  }
+
+  function startMicVisualizer(stream) {
+    var ctx = getAudioCtx();
+    var source = ctx.createMediaStreamSource(stream);
+    analyserNode = ctx.createAnalyser();
+    analyserNode.fftSize = 256;
+    source.connect(analyserNode);
+    if (visualizerRAF) cancelAnimationFrame(visualizerRAF);
+    visualize();
+  }
+
+  function stopMicVisualizer() {
+    if (visualizerRAF) {
+      cancelAnimationFrame(visualizerRAF);
+      visualizerRAF = null;
+    }
+    analyserNode = null;
+    circleIndicator.style.transform = "scale(1)";
+  }
+
+  function startPlaybackVisualizer(arrayBuffer) {
+    var ctx = getAudioCtx();
+    ctx.decodeAudioData(arrayBuffer)
+      .then(function (buffer) {
+        analyserNode = ctx.createAnalyser();
+        analyserNode.fftSize = 256;
+
+        playbackSource = ctx.createBufferSource();
+        playbackSource.buffer = buffer;
+        playbackSource.connect(analyserNode);
+        analyserNode.connect(ctx.destination);
+
+        isPlaying = true;
+        playbackSource.start(0);
+        if (visualizerRAF) cancelAnimationFrame(visualizerRAF);
+        visualize();
+
+        playbackSource.onended = function () {
+          isPlaying = false;
+          stopPlaybackVisualizer();
+          setCircleState("idle", "Tap mic to start");
+        };
+      })
+      .catch(function (err) {
+        logError("Audio decode failed:", err);
+        isPlaying = false;
+        setCircleState("idle", "Tap mic to start");
+      });
+  }
+
+  function stopPlaybackVisualizer() {
+    if (visualizerRAF) {
+      cancelAnimationFrame(visualizerRAF);
+      visualizerRAF = null;
+    }
+    if (playbackSource) {
+      try { playbackSource.stop(); } catch (e) {}
+      playbackSource.disconnect();
+      playbackSource = null;
+    }
+    analyserNode = null;
+    isPlaying = false;
+    circleIndicator.style.transform = "scale(1)";
   }
 
   fetch("/api/progress")
@@ -185,9 +279,9 @@
 
   function webmToWav(blob) {
     log("Converting webm to WAV, size:", (blob.size / 1024).toFixed(1), "KB");
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    var ctx = getAudioCtx();
     return blobToArrayBuffer(blob)
-      .then(function (buf) { return audioCtx.decodeAudioData(buf); })
+      .then(function (buf) { return ctx.decodeAudioData(buf); })
       .then(function (audioBuf) {
         var channelData = audioBuf.getChannelData(0);
         log("Decoded audio:", audioBuf.sampleRate, "Hz,", channelData.length, "samples");
@@ -238,16 +332,14 @@
         }
 
         setCircleState("playing", "Playing...");
-        var audioUrl = URL.createObjectURL(result.blob);
-        var audio = new Audio(audioUrl);
-        audio.onended = function () {
-          URL.revokeObjectURL(audioUrl);
-          setCircleState("idle", "Tap mic to start");
-        };
-        audio.play().catch(function (err) {
-          logError("Audio playback failed:", err);
-          setCircleState("idle", "Tap mic to start");
-        });
+        blobToArrayBuffer(result.blob)
+          .then(function (buf) {
+            startPlaybackVisualizer(buf);
+          })
+          .catch(function (err) {
+            logError("Playback visualizer failed:", err);
+            setCircleState("idle", "Tap mic to start");
+          });
       })
       .catch(function (err) {
         logError("Converse error:", err);
@@ -258,6 +350,7 @@
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(function (stream) {
+        micStream = stream;
         log("Microphone access granted");
 
         var options = { mimeType: "audio/webm;codecs=opus" };
@@ -306,6 +399,7 @@
   }
 
   recordBtn.addEventListener("click", function () {
+    if (isPlaying) return;
     if (isRecording) {
       stopRecording();
     } else {
@@ -320,6 +414,7 @@
     audioChunks = [];
     mediaRecorder.start();
     recordBtn.classList.add("is-recording");
+    if (micStream) startMicVisualizer(micStream);
     setCircleState("recording", "Recording...");
   }
 
@@ -327,6 +422,7 @@
     if (!mediaRecorder || !isRecording) return;
     log("Recording stopping...");
     isRecording = false;
+    stopMicVisualizer();
     if (mediaRecorder.state === "recording") {
       mediaRecorder.stop();
     }
@@ -334,9 +430,8 @@
   }
 
   endSessionBtn.addEventListener("click", function () {
-    if (isRecording) {
-      stopRecording();
-    }
+    if (isPlaying) stopPlaybackVisualizer();
+    if (isRecording) stopRecording();
     setCircleState("processing", "Generating review...");
 
     fetch("/api/review", {
@@ -397,6 +492,8 @@
   }
 
   newConversationBtn.addEventListener("click", function () {
+    if (isPlaying) stopPlaybackVisualizer();
+    if (isRecording) stopRecording();
     sessionId = null;
     audioCtx = null;
     showWelcome();
