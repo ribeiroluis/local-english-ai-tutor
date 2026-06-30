@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>English AI Tutor — Chat</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div id="chat-screen">
+    <header class="chat-header">
+      <a href="/" class="back-link">&larr; Exit</a>
+      <span id="chat-topic" class="chat-topic"></span>
+    </header>
+
+    <div id="chat-messages" class="chat-messages">
+      <div class="empty-state">
+        Press the mic button and start speaking
+      </div>
+    </div>
+
+    <div id="recording-indicator" class="recording-indicator hidden">
+      Transcribing...
+    </div>
+
+    <div class="chat-input-bar">
+      <button id="record-btn" class="record-btn" title="Hold to record">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script src="/static/js/chat.js"></script>
+</body>
+</html>
