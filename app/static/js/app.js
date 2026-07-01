@@ -26,6 +26,7 @@
   var endSessionBtn = document.getElementById("end-session-btn");
   var correctionsList = document.getElementById("corrections-list");
   var newConversationBtn = document.getElementById("new-conversation-btn");
+  var messageList = document.getElementById("message-list");
 
   function log() {
     var args = Array.prototype.slice.call(arguments);
@@ -76,6 +77,18 @@
     var div = document.createElement("div");
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
+  }
+
+  function addMessage(text, role) {
+    if (!text) return;
+    var msgDiv = document.createElement("div");
+    msgDiv.className = "message " + role;
+    var bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+    bubble.textContent = text;
+    msgDiv.appendChild(bubble);
+    messageList.appendChild(msgDiv);
+    messageList.scrollTop = messageList.scrollHeight;
   }
 
   function visualize() {
@@ -224,6 +237,7 @@
         sessionId = data.session_id;
         chatTopicLabel.textContent = selectedTopic;
         chatLevelLabel.textContent = selectedLevel;
+        messageList.innerHTML = "";
         setCircleState("idle", "Tap mic to start");
         showChat();
         startBtn.disabled = false;
@@ -323,6 +337,9 @@
       })
       .then(function (result) {
         log("AI reply:", result.reply);
+
+        addMessage(result.transcript, "user");
+        addMessage(result.reply, "ai");
 
         if (result.ttsError || result.blob.size === 0) {
           logError("TTS failed:", result.ttsError || "empty response");
