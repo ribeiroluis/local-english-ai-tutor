@@ -279,6 +279,29 @@ h2 {
   border-bottom-left-radius: 4px;
 }
 
+.message.thinking .message-bubble {
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.thinking-dot {
+  animation: dot-pulse 1.4s infinite both;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes dot-pulse {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
+}
+
 .circle-container {
   display: flex;
   flex-direction: column;

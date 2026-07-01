@@ -314,52 +314,84 @@
       });
   }
 
-  function sendAudio(wavBlob) {
-    setCircleState("processing", "Processing...");
-    log("Sending WAV to converse, size:", (wavBlob.size / 1024).toFixed(1), "KB");
+  function addThinking() {
+    var msgDiv = document.createElement("div");
+    msgDiv.className = "message ai thinking";
+    msgDiv.id = "thinking-message";
+    var bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+    bubble.innerHTML = "Thinking<span class='thinking-dot'>.</span><span class='thinking-dot'>.</span><span class='thinking-dot'>.</span>";
+    msgDiv.appendChild(bubble);
+    messageList.appendChild(msgDiv);
+    messageList.scrollTop = messageList.scrollHeight;
+  }
+
+  function removeThinking() {
+    var el = document.getElementById("thinking-message");
+    if (el) el.remove();
+  }
+
+  function processAudio(wavBlob) {
+    log("Processing audio, size:", (wavBlob.size / 1024).toFixed(1), "KB");
 
     var formData = new FormData();
     formData.append("file", wavBlob, "recording.wav");
-    formData.append("session_id", sessionId);
 
-    fetch("/api/converse", {
-      method: "POST",
-      body: formData,
-    })
-      .then(function (r) {
-        log("Converse response status:", r.status);
-        var transcript = r.headers.get("X-Transcript") || "";
-        var reply = r.headers.get("X-Reply") || "";
-        var ttsError = r.headers.get("X-TTS-Error") || null;
-        return r.blob().then(function (blob) {
-          return { blob: blob, transcript: transcript, reply: reply, ttsError: ttsError };
-        });
-      })
-      .then(function (result) {
-        log("AI reply:", result.reply);
-
-        addMessage(result.transcript, "user");
-        addMessage(result.reply, "ai");
-
-        if (result.ttsError || result.blob.size === 0) {
-          logError("TTS failed:", result.ttsError || "empty response");
-          setCircleState("idle", "AI replied (no audio)");
+    fetch("/api/transcribe", { method: "POST", body: formData })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var transcript = data.text || "";
+        if (!transcript) {
+          logError("Empty transcription");
+          setCircleState("idle", "Could not understand audio");
           return;
         }
 
-        setCircleState("playing", "Playing...");
-        blobToArrayBuffer(result.blob)
-          .then(function (buf) {
-            startPlaybackVisualizer(buf);
+        addMessage(transcript, "user");
+        addThinking();
+        setCircleState("processing", "Thinking...");
+
+        fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, text: transcript }),
+        })
+          .then(function (r) {
+            var reply = r.headers.get("X-Reply") || "";
+            var ttsError = r.headers.get("X-TTS-Error") || null;
+            return r.blob().then(function (blob) {
+              return { blob: blob, reply: reply, ttsError: ttsError };
+            });
+          })
+          .then(function (result) {
+            removeThinking();
+            addMessage(result.reply, "ai");
+
+            if (result.ttsError || result.blob.size === 0) {
+              logError("TTS failed:", result.ttsError || "empty response");
+              setCircleState("idle", "AI replied (no audio)");
+              return;
+            }
+
+            setCircleState("playing", "Playing...");
+            blobToArrayBuffer(result.blob)
+              .then(function (buf) {
+                startPlaybackVisualizer(buf);
+              })
+              .catch(function (err) {
+                logError("Playback visualizer failed:", err);
+                setCircleState("idle", "Tap mic to start");
+              });
           })
           .catch(function (err) {
-            logError("Playback visualizer failed:", err);
-            setCircleState("idle", "Tap mic to start");
+            removeThinking();
+            logError("Chat error:", err);
+            setCircleState("idle", "AI unavailable");
           });
       })
       .catch(function (err) {
-        logError("Converse error:", err);
-        setCircleState("idle", "AI unavailable");
+        logError("Transcribe error:", err);
+        setCircleState("idle", "Transcription failed");
       });
   }
 
@@ -384,14 +416,14 @@
 
         mediaRecorder.onstop = function () {
           log("Recording stopped, chunks:", audioChunks.length);
-          setCircleState("processing", "Processing...");
+          setCircleState("processing", "Transcribing...");
 
           var blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
           audioChunks = [];
 
           webmToWav(blob)
             .then(function (wavBlob) {
-              sendAudio(wavBlob);
+              processAudio(wavBlob);
             })
             .catch(function (err) {
               logError("WAV conversion failed:", err);
