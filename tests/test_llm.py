@@ -3,7 +3,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from app.services.llm import LEVEL_INSTRUCTIONS, build_messages, generate, generate_review
+from app.services.llm import LEVEL_INSTRUCTIONS, build_messages, generate_review, generate_with_correction
 
 
 class TestBuildMessages:
@@ -50,11 +50,12 @@ class TestBuildMessages:
         assert messages[-1]["content"] == "hello"
 
 
-class TestGenerate:
-    def test_generate_success(self):
+class TestGenerateWithCorrection:
+    def test_success_with_correction(self):
         mock_response = {
-            "message": {"content": " Hello, how are you? "},
-            "done": True,
+            "message": {
+                "content": '{"reply": "I went to the park too!", "correction": {"original": "I go to park", "corrected": "I went to the park", "explanation_pt": "Use passado simples.", "error_type": "verb_tense"}}'
+            },
         }
 
         with patch("httpx.Client") as mock_client:
@@ -62,41 +63,67 @@ class TestGenerate:
             mock_instance.post.return_value.raise_for_status.return_value = None
             mock_instance.post.return_value.json.return_value = mock_response
 
-            reply = generate("Be friendly.", "A2", [], "hello")
-            assert reply == "Hello, how are you?"
+            result = generate_with_correction("Be friendly.", "A2", [], "I go to park")
+            assert result["reply"] == "I went to the park too!"
+            assert result["correction"]["error_type"] == "verb_tense"
+            assert result["correction"]["corrected"] == "I went to the park"
 
-    def test_generate_connection_error(self):
+    def test_success_no_correction(self):
+        mock_response = {
+            "message": {
+                "content": '{"reply": "Hello! How are you?", "correction": null}'
+            },
+        }
+
+        with patch("httpx.Client") as mock_client:
+            mock_instance = mock_client.return_value.__enter__.return_value
+            mock_instance.post.return_value.raise_for_status.return_value = None
+            mock_instance.post.return_value.json.return_value = mock_response
+
+            result = generate_with_correction("Be friendly.", "A2", [], "Hello")
+            assert result["reply"] == "Hello! How are you?"
+            assert result["correction"] is None
+
+    def test_connection_error(self):
         with patch("httpx.Client") as mock_client:
             mock_instance = mock_client.return_value.__enter__.return_value
             mock_instance.post.side_effect = httpx.RequestError("Connection refused")
 
             with pytest.raises(httpx.RequestError):
-                generate("Be friendly.", "A2", [], "hello")
+                generate_with_correction("Be friendly.", "A2", [], "hello")
 
-    def test_generate_missing_key_in_response(self):
+    def test_invalid_json_fallback(self):
+        mock_response = {
+            "message": {"content": "This is not JSON but a plain text reply"},
+        }
+
         with patch("httpx.Client") as mock_client:
             mock_instance = mock_client.return_value.__enter__.return_value
             mock_instance.post.return_value.raise_for_status.return_value = None
-            mock_instance.post.return_value.json.return_value = {"done": True}
+            mock_instance.post.return_value.json.return_value = mock_response
 
-            with pytest.raises(ValueError):
-                generate("Be friendly.", "A2", [], "hello")
+            result = generate_with_correction("Be friendly.", "A2", [], "hello")
+            assert result["reply"] == "This is not JSON but a plain text reply"
+            assert result["correction"] is None
 
-    def test_generate_passes_correct_url(self):
+    def test_passes_format_json(self):
         with patch("httpx.Client") as mock_client:
             mock_instance = mock_client.return_value.__enter__.return_value
             mock_instance.post.return_value.raise_for_status.return_value = None
-            mock_instance.post.return_value.json.return_value = {"message": {"content": "ok"}}
+            mock_instance.post.return_value.json.return_value = {
+                "message": {"content": '{"reply": "ok", "correction": null}'}
+            }
 
-            generate("Prompt.", "B1", [], "hi")
-            call_url = mock_instance.post.call_args[0][0]
-            assert "api/chat" in call_url
+            generate_with_correction("Prompt.", "B1", [], "hi")
+            call_kwargs = mock_instance.post.call_args[1]
+            assert call_kwargs["json"].get("format") == "json"
 
 
 class TestGenerateReview:
     def test_generate_review_no_user_turns(self):
         session = {"turns": [{"role": "assistant", "text": "Hi"}]}
-        assert generate_review(session) == []
+        result = generate_review(session)
+        assert result == {"total_errors": 0, "by_type": {}, "topics_to_review": []}
 
     def test_generate_review_success(self):
         session = {
@@ -105,25 +132,22 @@ class TestGenerateReview:
                 {"role": "assistant", "text": "I went to school yesterday. That's great!"},
             ]
         }
-        mock_corrections = [
-            {
-                "original_text": "I go to school yesterday",
-                "corrected_text": "I went to school yesterday",
-                "error_type": "verb_tense",
-                "explanation_pt": "Use 'went' no passado",
-            }
-        ]
+        mock_summary = {
+            "total_errors": 1,
+            "by_type": {"verb_tense": 1},
+            "topics_to_review": ["Past simple tense"],
+        }
 
         with patch("httpx.Client") as mock_client:
             mock_instance = mock_client.return_value.__enter__.return_value
             mock_instance.post.return_value.raise_for_status.return_value = None
             mock_instance.post.return_value.json.return_value = {
-                "message": {"content": '[{"original_text": "I go to school yesterday", "corrected_text": "I went to school yesterday", "error_type": "verb_tense", "explanation_pt": "Use went no passado"}]'}
+                "message": {"content": '{"total_errors": 1, "by_type": {"verb_tense": 1}, "topics_to_review": ["Past simple tense"]}'}
             }
 
             result = generate_review(session)
-            assert len(result) == 1
-            assert result[0]["error_type"] == "verb_tense"
+            assert result["total_errors"] == 1
+            assert result["by_type"]["verb_tense"] == 1
 
     def test_generate_review_invalid_json_response(self):
         session = {
@@ -141,4 +165,4 @@ class TestGenerateReview:
             }
 
             result = generate_review(session)
-            assert result == []
+            assert result == {"total_errors": 0, "by_type": {}, "topics_to_review": []}

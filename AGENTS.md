@@ -2,7 +2,7 @@
 
 ## Project
 Web app for spoken English conversation practice. 100% local, CPU, open-source.
-MVP: speak → STT → LLM → TTS → correction at session end.
+MVP: speak → STT → LLM (reply + correction) → TTS → play audio.
 
 ## Stack
 - Backend: Python 3.11+ / FastAPI / Uvicorn
@@ -17,16 +17,16 @@ MVP: speak → STT → LLM → TTS → correction at session end.
 ## Rules
 - Mobile-first (375px base). Desktop is progressive enhancement.
 - Persist in JSON, not SQLite (MVP).
-- Error correction only at session end, not in real-time.
+- Correction shown per turn, aggregate summary at session end.
 - CEFR level (A1-C2) adjusts per session via error_ratio (>40% down, <10% up).
-- 1 LLM call/turn (conversation) + 1 LLM call at end (review).
+- 1 LLM call/turn produces reply + correction; review endpoint returns aggregate summary.
 - Context window: last 10 turns.
 - Single page app: Welcome screen → Chat screen → Review modal.
 - Single user, no auth.
 
 ## DO
-- Single-pass LLM: reply per turn, no analysis until end.
-- Synchronous pipeline: POST audio → wait → receive audio.
+- Single-pass LLM: reply + correction per turn.
+- Two-step pipeline: POST audio → JSON (reply+correction) → POST TTS → audio.
 - Frontend: MediaRecorder → WAV (16-bit mono 16kHz).
 - Topics in `app/prompts/topics.json` (JSON, not hard-coded).
 - `.env` for config (port, model paths, Ollama host).
@@ -35,7 +35,7 @@ MVP: speak → STT → LLM → TTS → correction at session end.
 ## DON'T
 - No external paid APIs.
 - No GPU dependency.
-- No real-time correction during conversation.
+- Corrections during conversation (per-turn).
 - No SQLite (use JSON).
 - No authentication/login.
 - No dark mode (post-MVP).
