@@ -1,3 +1,5 @@
+import json as json_parse
+
 import httpx
 from app.config import settings
 from app.services.logger import setup_logger
@@ -16,10 +18,25 @@ LEVEL_INSTRUCTIONS = {
     "C2": "Use native-level English with full complexity.",
 }
 
+CORRECTION_INSTRUCTIONS = (
+    'Respond in JSON format with this exact structure:\n'
+    '{\n'
+    '  "reply": "Your natural conversational response in English",\n'
+    '  "correction": {\n'
+    '    "original": "The user\'s exact text or phrase with error, exactly as written",\n'
+    '    "corrected": "The corrected version",\n'
+    '    "explanation_pt": "Brief explanation in Brazilian Portuguese",\n'
+    '    "error_type": "grammar|verb_tense|article|preposition|vocabulary|word_order|agreement|other"\n'
+    '  }\n'
+    '}\n'
+    'If the user made no errors, set "correction" to null.\n'
+    'Always respond in valid JSON.'
+)
+
 
 def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> list[dict]:
     level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
-    system = f"{topic_prompt}\n\nLevel: {level}. {level_instruction}"
+    system = f"{topic_prompt}\n\nLevel: {level}. {level_instruction}\n\n{CORRECTION_INSTRUCTIONS}"
 
     messages = [{"role": "system", "content": system}]
 
@@ -30,9 +47,11 @@ def build_messages(topic_prompt: str, level: str, context_turns: list[dict], use
     return messages
 
 
-def _ollama_chat(messages: list[dict]) -> str:
+def _ollama_chat(messages: list[dict], format_json: bool = False) -> str:
     url = f"{settings.ollama_host}/api/chat"
-    payload = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
+    payload: dict = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
+    if format_json:
+        payload["format"] = "json"
 
     try:
         with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
@@ -46,10 +65,14 @@ def _ollama_chat(messages: list[dict]) -> str:
                 prompt_text += f"{role_label}: {m['content']}\n"
             prompt_text += "ASSISTANT:"
 
+            gen_payload: dict = {"model": OLLAMA_MODEL, "prompt": prompt_text, "stream": False}
+            if format_json:
+                gen_payload["format"] = "json"
+
             with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
                 resp = client.post(
                     f"{settings.ollama_host}/api/generate",
-                    json={"model": OLLAMA_MODEL, "prompt": prompt_text, "stream": False},
+                    json=gen_payload,
                 )
 
         resp.raise_for_status()
@@ -71,14 +94,30 @@ def _ollama_chat(messages: list[dict]) -> str:
         raise
 
 
-def generate(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> str:
+def generate_with_correction(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> dict:
     messages = build_messages(topic_prompt, level, context_turns, user_text)
-    reply = _ollama_chat(messages)
-    logger.info(f"LLM reply: {len(reply)} chars")
-    return reply
+    reply = _ollama_chat(messages, format_json=True)
+    logger.info(f"LLM raw reply: {len(reply)} chars")
+
+    try:
+        data = json_parse.loads(reply)
+        if not isinstance(data, dict):
+            raise ValueError("Response is not a JSON object")
+        correction = data.get("correction")
+        if correction is not None and not isinstance(correction, dict):
+            correction = None
+        result = {
+            "reply": data.get("reply", reply),
+            "correction": correction,
+        }
+        logger.info(f"LLM parsed: reply={len(result['reply'])} chars, correction={'yes' if correction else 'none'}")
+        return result
+    except (json_parse.JSONDecodeError, ValueError) as e:
+        logger.error(f"Failed to parse structured LLM output: {e}")
+        return {"reply": reply, "correction": None}
 
 
-def generate_review(session: dict) -> list[dict]:
+def generate_review(session: dict) -> dict:
     turns = session.get("turns", [])
     conversation_parts = []
 
@@ -89,32 +128,29 @@ def generate_review(session: dict) -> list[dict]:
             conversation_parts.append(f"User: {user_turn['text']}\nAI: {ai_turn['text']}")
 
     if not conversation_parts:
-        return []
+        return {"total_errors": 0, "by_type": {}, "topics_to_review": []}
 
     conversation_text = "\n".join(conversation_parts)
 
     prompt = (
-        "You are an English tutor. Review the conversation below and identify errors "
-        "made by the student (the User). For each error, provide a JSON object with:\n"
-        "- original_text: the user's exact text with the error\n"
-        "- corrected_text: the corrected version\n"
-        "- error_type: one of: grammar, verb_tense, article, preposition, vocabulary, word_order, agreement, other\n"
-        "- explanation_pt: explanation in Brazilian Portuguese\n\n"
-        "Return ONLY a JSON array of error objects. If no errors, return an empty array.\n\n"
+        "You are an English tutor. Review the conversation below and provide an aggregate analysis "
+        "of the student's errors. Return a JSON object with:\n"
+        "- total_errors: total number of errors found\n"
+        "- by_type: object with error_type as key and count as value (types: grammar, verb_tense, article, preposition, vocabulary, word_order, agreement, other)\n"
+        "- topics_to_review: array of strings with topics the student should review\n\n"
+        'If no errors, return {"total_errors": 0, "by_type": {}, "topics_to_review": []}.\n\n'
         f"Conversation:\n{conversation_text}\n\n"
-        "JSON corrections:"
+        "JSON analysis:"
     )
 
     try:
-        reply = _ollama_chat([{"role": "user", "content": prompt}])
-
-        import json as json_parse
-        corrections = json_parse.loads(reply)
-        if not isinstance(corrections, list):
-            logger.warning(f"Review response is not a list: {type(corrections)}")
-            return []
-        logger.info(f"Review generated: {len(corrections)} corrections")
-        return corrections
+        reply = _ollama_chat([{"role": "user", "content": prompt}], format_json=True)
+        summary = json_parse.loads(reply)
+        if not isinstance(summary, dict):
+            logger.warning(f"Review response is not a dict: {type(summary)}")
+            return {"total_errors": 0, "by_type": {}, "topics_to_review": []}
+        logger.info(f"Review summary generated: {summary.get('total_errors', 0)} total errors")
+        return summary
     except (httpx.RequestError, KeyError, ValueError, json_parse.JSONDecodeError) as e:
-        logger.error(f"Review generation failed: {e}")
-        return []
+        logger.error(f"Review summary generation failed: {e}")
+        return {"total_errors": 0, "by_type": {}, "topics_to_review": []}

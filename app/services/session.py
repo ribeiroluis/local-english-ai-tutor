@@ -51,16 +51,19 @@ def get_session(session_id: str) -> dict | None:
         return None
 
 
-def add_turn(session_id: str, user_text: str, ai_text: str) -> dict:
+def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | None = None) -> dict:
     session = get_session(session_id)
     if session is None:
         raise ValueError(f"Session not found: {session_id}")
 
-    session["turns"].append({
+    user_turn = {
         "role": "user",
         "text": user_text,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    if correction:
+        user_turn["correction"] = correction
+    session["turns"].append(user_turn)
     session["turns"].append({
         "role": "assistant",
         "text": ai_text,
