@@ -46,6 +46,11 @@ class ReviewRequest(BaseModel):
     session_id: str
 
 
+class ChatRequest(BaseModel):
+    session_id: str
+    text: str
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -131,6 +136,43 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
                 "X-Reply": ai_reply,
                 "X-TTS-Error": str(e),
             },
+        )
+
+
+@app.post("/api/chat")
+async def api_chat(req: ChatRequest):
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+
+    session = get_session(req.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    with open(TOPICS_FILE, "r", encoding="utf-8") as f:
+        topics = json.load(f)
+    topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
+
+    try:
+        ai_reply = generate(topic["system_prompt"], session["level"], session["turns"], req.text)
+    except Exception as e:
+        logger.error(f"LLM generation failed: {e}")
+        raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
+
+    try:
+        audio_wav = synthesize(ai_reply)
+        add_turn(req.session_id, req.text, ai_reply)
+        return Response(
+            content=audio_wav,
+            media_type="audio/wav",
+            headers={"X-Reply": ai_reply},
+        )
+    except Exception as e:
+        logger.error(f"TTS failed for session {req.session_id}: {e}")
+        add_turn(req.session_id, req.text, ai_reply)
+        return Response(
+            content=b"",
+            media_type="audio/wav",
+            headers={"X-Reply": ai_reply, "X-TTS-Error": str(e)},
         )
 
 
