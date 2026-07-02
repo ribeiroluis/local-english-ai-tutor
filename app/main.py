@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.config import settings
-from app.services.llm import generate, generate_review
+from app.services.llm import generate_review, generate_with_correction
 from app.services.logger import setup_logger
 from app.services.session import (
     add_turn,
@@ -48,6 +48,10 @@ class ReviewRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str
+    text: str
+
+
+class TTSRequest(BaseModel):
     text: str
 
 
@@ -112,31 +116,20 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
     topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
 
     try:
-        ai_reply = generate(topic["system_prompt"], session["level"], session["turns"], user_text)
+        result = generate_with_correction(
+            topic["system_prompt"], session["level"], session["turns"], user_text
+        )
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
 
-    try:
-        audio_wav = synthesize(ai_reply)
-        add_turn(session_id, user_text, ai_reply)
-        return Response(
-            content=audio_wav,
-            media_type="audio/wav",
-            headers={"X-Transcript": user_text, "X-Reply": ai_reply},
-        )
-    except Exception as e:
-        logger.error(f"TTS failed for session {session_id}: {e}")
-        add_turn(session_id, user_text, ai_reply)
-        return Response(
-            content=b"",
-            media_type="audio/wav",
-            headers={
-                "X-Transcript": user_text,
-                "X-Reply": ai_reply,
-                "X-TTS-Error": str(e),
-            },
-        )
+    add_turn(session_id, user_text, result["reply"], correction=result.get("correction"))
+
+    return {
+        "transcript": user_text,
+        "reply": result["reply"],
+        "correction": result.get("correction"),
+    }
 
 
 @app.post("/api/chat")
@@ -153,27 +146,32 @@ async def api_chat(req: ChatRequest):
     topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
 
     try:
-        ai_reply = generate(topic["system_prompt"], session["level"], session["turns"], req.text)
+        result = generate_with_correction(
+            topic["system_prompt"], session["level"], session["turns"], req.text
+        )
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
 
+    add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"))
+
+    return {
+        "transcript": req.text,
+        "reply": result["reply"],
+        "correction": result.get("correction"),
+    }
+
+
+@app.post("/api/tts")
+async def api_tts(req: TTSRequest):
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
     try:
-        audio_wav = synthesize(ai_reply)
-        add_turn(req.session_id, req.text, ai_reply)
-        return Response(
-            content=audio_wav,
-            media_type="audio/wav",
-            headers={"X-Reply": ai_reply},
-        )
+        audio_wav = synthesize(req.text)
+        return Response(content=audio_wav, media_type="audio/wav")
     except Exception as e:
-        logger.error(f"TTS failed for session {req.session_id}: {e}")
-        add_turn(req.session_id, req.text, ai_reply)
-        return Response(
-            content=b"",
-            media_type="audio/wav",
-            headers={"X-Reply": ai_reply, "X-TTS-Error": str(e)},
-        )
+        logger.error(f"TTS failed: {e}")
+        raise HTTPException(status_code=502, detail=f"TTS failed: {str(e)}")
 
 
 @app.post("/api/review")
@@ -182,8 +180,8 @@ async def api_review(req: ReviewRequest):
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    corrections = generate_review(session)
-    session["corrections"] = corrections
+    summary = generate_review(session)
+    session["review_summary"] = summary
     update_session(session)
 
-    return {"corrections": corrections}
+    return {"summary": summary}
