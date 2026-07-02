@@ -331,16 +331,34 @@
     if (el) el.remove();
   }
 
+  function addCorrection(correction) {
+    var card = document.createElement("div");
+    card.className = "message correction";
+    card.innerHTML =
+      '<div class="correction-inline">' +
+      '<div class="correction-label">Correction</div>' +
+      '<div class="correction-original">' + escapeHtml(correction.original || "") + '</div>' +
+      '<div class="correction-corrected">' + escapeHtml(correction.corrected || "") + '</div>' +
+      '<div class="correction-explanation">' + escapeHtml(correction.explanation_pt || "") + '</div>' +
+      '<div class="correction-type">' + escapeHtml(correction.error_type || "other") + '</div>' +
+      "</div>";
+    messageList.appendChild(card);
+    messageList.scrollTop = messageList.scrollHeight;
+  }
+
   function processAudio(wavBlob) {
     log("Processing audio, size:", (wavBlob.size / 1024).toFixed(1), "KB");
 
     var formData = new FormData();
     formData.append("file", wavBlob, "recording.wav");
+    formData.append("session_id", sessionId);
 
-    fetch("/api/transcribe", { method: "POST", body: formData })
+    setCircleState("processing", "Thinking...");
+
+    fetch("/api/converse", { method: "POST", body: formData })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        var transcript = data.text || "";
+        var transcript = data.transcript || "";
         if (!transcript) {
           logError("Empty transcription");
           setCircleState("idle", "Could not understand audio");
@@ -348,33 +366,30 @@
         }
 
         addMessage(transcript, "user");
-        addThinking();
-        setCircleState("processing", "Thinking...");
 
-        fetch("/api/chat", {
+        if (data.correction) {
+          addCorrection(data.correction);
+        }
+
+        removeThinking();
+        addMessage(data.reply || "", "ai");
+        setCircleState("processing", "Generating voice...");
+
+        fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId, text: transcript }),
+          body: JSON.stringify({ text: data.reply || "" }),
         })
-          .then(function (r) {
-            var reply = r.headers.get("X-Reply") || "";
-            var ttsError = r.headers.get("X-TTS-Error") || null;
-            return r.blob().then(function (blob) {
-              return { blob: blob, reply: reply, ttsError: ttsError };
-            });
-          })
-          .then(function (result) {
-            removeThinking();
-            addMessage(result.reply, "ai");
-
-            if (result.ttsError || result.blob.size === 0) {
-              logError("TTS failed:", result.ttsError || "empty response");
+          .then(function (r) { return r.blob(); })
+          .then(function (blob) {
+            if (blob.size === 0) {
+              logError("TTS returned empty blob");
               setCircleState("idle", "AI replied (no audio)");
               return;
             }
 
             setCircleState("playing", "Playing...");
-            blobToArrayBuffer(result.blob)
+            blobToArrayBuffer(blob)
               .then(function (buf) {
                 startPlaybackVisualizer(buf);
               })
@@ -384,14 +399,13 @@
               });
           })
           .catch(function (err) {
-            removeThinking();
-            logError("Chat error:", err);
-            setCircleState("idle", "AI unavailable");
+            logError("TTS error:", err);
+            setCircleState("idle", "AI replied (text only)");
           });
       })
       .catch(function (err) {
-        logError("Transcribe error:", err);
-        setCircleState("idle", "Transcription failed");
+        logError("Converse error:", err);
+        setCircleState("idle", "AI unavailable");
       });
   }
 
@@ -489,7 +503,7 @@
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        renderCorrections(data.corrections);
+        renderReviewSummary(data.summary);
         showReview();
       })
       .catch(function (err) {
@@ -499,44 +513,41 @@
       });
   });
 
-  function renderCorrections(corrections) {
+  function renderReviewSummary(summary) {
     correctionsList.innerHTML = "";
 
-    if (!corrections || corrections.length === 0) {
+    if (!summary || summary.total_errors === 0) {
       correctionsList.innerHTML = '<p class="no-corrections">No errors found. Great job!</p>';
       return;
     }
 
-    var summary = {};
-    corrections.forEach(function (c) {
-      var type = c.error_type || "other";
-      summary[type] = (summary[type] || 0) + 1;
-    });
-
     var summaryEl = document.createElement("div");
     summaryEl.className = "corrections-summary";
-    var summaryHtml = "<h3>Error Summary</h3><div class='summary-bars'>";
-    Object.keys(summary).forEach(function (type) {
-      var pct = Math.round((summary[type] / corrections.length) * 100);
-      summaryHtml +=
-        "<div class='summary-row'><span class='summary-label'>" + type +
-        "</span><div class='summary-bar'><div class='summary-fill' style='width:" + pct + "%'></div></div>" +
-        "<span class='summary-count'>" + summary[type] + "</span></div>";
-    });
-    summaryHtml += "</div>";
-    summaryEl.innerHTML = summaryHtml;
+    var byType = summary.by_type || {};
+    var typeKeys = Object.keys(byType);
+    var html = "<h3>Session Summary</h3>";
+    html += "<p class='summary-total'>Total errors: <strong>" + summary.total_errors + "</strong></p>";
+    if (typeKeys.length > 0) {
+      html += "<div class='summary-bars'>";
+      typeKeys.forEach(function (type) {
+        var pct = Math.round((byType[type] / summary.total_errors) * 100);
+        html +=
+          "<div class='summary-row'><span class='summary-label'>" + type +
+          "</span><div class='summary-bar'><div class='summary-fill' style='width:" + pct + "%'></div></div>" +
+          "<span class='summary-count'>" + byType[type] + "</span></div>";
+      });
+      html += "</div>";
+    }
+    var topics = summary.topics_to_review || [];
+    if (topics.length > 0) {
+      html += "<h3>Topics to Review</h3><ul class='topics-list'>";
+      topics.forEach(function (t) {
+        html += "<li>" + escapeHtml(t) + "</li>";
+      });
+      html += "</ul>";
+    }
+    summaryEl.innerHTML = html;
     correctionsList.appendChild(summaryEl);
-
-    corrections.forEach(function (c, i) {
-      var card = document.createElement("div");
-      card.className = "correction-card";
-      card.innerHTML =
-        "<div class='correction-original'>" + escapeHtml(c.original_text || "") + "</div>" +
-        "<div class='correction-corrected'>" + escapeHtml(c.corrected_text || "") + "</div>" +
-        "<div class='correction-explanation'>" + escapeHtml(c.explanation_pt || "") + "</div>" +
-        "<div class='correction-type'>" + escapeHtml(c.error_type || "other") + "</div>";
-      correctionsList.appendChild(card);
-    });
   }
 
   newConversationBtn.addEventListener("click", function () {
