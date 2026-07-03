@@ -577,6 +577,53 @@ h2 {
   margin-bottom: 4px;
 }
 
+.level-adjustment {
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+
+.level-adj-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+}
+
+.level-adj-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.level-adj-arrow .level-from {
+  color: var(--color-text-secondary);
+}
+
+.level-adj-arrow .level-arrow {
+  font-size: 1.5rem;
+  color: var(--color-text-secondary);
+}
+
+.level-adj-arrow.up .level-to {
+  color: var(--color-green);
+}
+
+.level-adj-arrow.down .level-to {
+  color: var(--color-red);
+}
+
+.level-adj-arrow.same .level-to {
+  color: var(--color-text-secondary);
+}
+
 #welcome-screen.hidden,
 #chat-screen.hidden,
 #review-modal.hidden {

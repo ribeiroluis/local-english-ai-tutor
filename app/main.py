@@ -12,6 +12,7 @@ from app.services.llm import generate_review, generate_with_correction
 from app.services.logger import setup_logger
 from app.services.session import (
     add_turn,
+    adjust_cefr_level,
     create_session,
     get_session,
     load_user_progress,
@@ -198,4 +199,10 @@ async def api_review(req: ReviewRequest):
     session["review_summary"] = summary
     update_session(session)
 
-    return {"summary": summary}
+    try:
+        level_adjustment = adjust_cefr_level(req.session_id)
+    except (ValueError, IOError, OSError) as e:
+        logger.error(f"CEFR adjustment failed: {e}")
+        raise HTTPException(status_code=500, detail=f"CEFR level adjustment failed: {str(e)}")
+
+    return {"summary": summary, "level_adjustment": level_adjustment}

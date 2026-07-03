@@ -1,4 +1,5 @@
 (function () {
+  var CEFR_INDEX = { A1: 0, A2: 1, B1: 2, B2: 3, C1: 4, C2: 5 };
   var selectedTopic = null;
   var selectedLevel = null;
   var sessionId = null;
@@ -175,7 +176,7 @@
     .then(function (r) { return r.json(); })
     .then(function (progress) {
       selectedTopic = progress.last_topic || null;
-      selectedLevel = progress.last_level || null;
+      selectedLevel = progress.current_cefr || progress.last_level || null;
       if (selectedLevel) {
         levelBtns.forEach(function (btn) {
           if (btn.dataset.level === selectedLevel) {
@@ -502,7 +503,7 @@
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        renderReviewSummary(data.summary);
+        renderReviewSummary(data.summary, data.level_adjustment);
         showReview();
       })
       .catch(function (err) {
@@ -512,11 +513,29 @@
       });
   });
 
-  function renderReviewSummary(summary) {
+  function renderReviewSummary(summary, levelAdjustment) {
     correctionsList.innerHTML = "";
 
+    if (levelAdjustment) {
+      var adjDiv = document.createElement("div");
+      adjDiv.className = "level-adjustment";
+      var from = levelAdjustment.from || "?";
+      var to = levelAdjustment.to || "?";
+      var direction = from !== to ? (CEFR_INDEX[from] < CEFR_INDEX[to] ? "up" : "down") : "same";
+      if (from !== to) {
+        adjDiv.innerHTML =
+          '<div class="level-adj-label">Level adjusted</div>' +
+          '<div class="level-adj-arrow ' + direction + '">' +
+          '<span class="level-from">' + escapeHtml(from) + '</span>' +
+          '<span class="level-arrow">&rarr;</span>' +
+          '<span class="level-to">' + escapeHtml(to) + '</span>' +
+          '</div>';
+        correctionsList.appendChild(adjDiv);
+      }
+    }
+
     if (!summary || summary.total_errors === 0) {
-      correctionsList.innerHTML = '<p class="no-corrections">No errors found. Great job!</p>';
+      correctionsList.innerHTML += '<p class="no-corrections">No errors found. Great job!</p>';
       return;
     }
 

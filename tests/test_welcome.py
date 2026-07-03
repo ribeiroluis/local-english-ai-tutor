@@ -20,7 +20,7 @@ def test_progress_returns_defaults(client):
     assert response.status_code == 200
     data = response.json()
     assert data["last_topic"] == "small-talk"
-    assert data["last_level"] == "A2"
+    assert data["current_cefr"] == "A2"
 
 
 def test_create_session(client):
@@ -38,7 +38,7 @@ def test_create_session_persists_progress(client):
     client.post("/api/sessions", json={"topic": "restaurant", "level": "C1"})
     progress = client.get("/api/progress").json()
     assert progress["last_topic"] == "restaurant"
-    assert progress["last_level"] == "C1"
+    assert progress["current_cefr"] == "C1"
 
 
 def test_static_css_served(client):
