@@ -93,13 +93,7 @@ def update_session(session: dict):
 
 def save_user_progress(topic: str, level: str):
     PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    existing = {}
-    if PROGRESS_FILE.exists():
-        try:
-            with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
+    existing = load_user_progress()
     existing["last_topic"] = topic
     existing["current_cefr"] = level
     try:
@@ -159,7 +153,7 @@ def adjust_cefr_level(session_id: str) -> dict:
 
     new_progress = {
         "current_cefr": new_level,
-        "last_topic": progress.get("last_topic", session.get("topic", DEFAULT_TOPIC)),
+        "last_topic": session.get("topic", DEFAULT_TOPIC),
         "total_sessions": progress.get("total_sessions", 0) + 1,
         "total_turns": progress.get("total_turns", 0) + total_user_turns,
         "errors_by_type": errors_by_type,

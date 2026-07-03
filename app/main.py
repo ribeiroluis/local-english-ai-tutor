@@ -201,8 +201,8 @@ async def api_review(req: ReviewRequest):
 
     try:
         level_adjustment = adjust_cefr_level(req.session_id)
-    except Exception as e:
+    except (ValueError, IOError, OSError) as e:
         logger.error(f"CEFR adjustment failed: {e}")
-        level_adjustment = {"error": str(e)}
+        raise HTTPException(status_code=500, detail=f"CEFR level adjustment failed: {str(e)}")
 
     return {"summary": summary, "level_adjustment": level_adjustment}
