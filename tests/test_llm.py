@@ -125,35 +125,68 @@ class TestGenerateReview:
         result = generate_review(session)
         assert result == {"total_errors": 0, "by_type": {}, "topics_to_review": []}
 
-    def test_generate_review_success(self):
+    def test_generate_review_computes_stats_locally(self):
         session = {
             "turns": [
-                {"role": "user", "text": "I go to school yesterday"},
-                {"role": "assistant", "text": "I went to school yesterday. That's great!"},
+                {
+                    "role": "user", "text": "I go to school yesterday",
+                    "correction": {
+                        "original": "I go to school yesterday",
+                        "corrected": "I went to school yesterday",
+                        "explanation_pt": "Use passado simples 'went'.",
+                        "error_type": "verb_tense",
+                    },
+                },
+                {"role": "assistant", "text": "That's great!"},
+                {
+                    "role": "user", "text": "He don't like it",
+                    "correction": {
+                        "original": "He don't like it",
+                        "corrected": "He doesn't like it",
+                        "explanation_pt": "Use 'doesn't' com he/she/it.",
+                        "error_type": "agreement",
+                    },
+                },
+                {"role": "assistant", "text": "You're right!"},
             ]
-        }
-        mock_summary = {
-            "total_errors": 1,
-            "by_type": {"verb_tense": 1},
-            "topics_to_review": ["Past simple tense"],
         }
 
         with patch("httpx.Client") as mock_client:
             mock_instance = mock_client.return_value.__enter__.return_value
             mock_instance.post.return_value.raise_for_status.return_value = None
             mock_instance.post.return_value.json.return_value = {
-                "message": {"content": '{"total_errors": 1, "by_type": {"verb_tense": 1}, "topics_to_review": ["Past simple tense"]}'}
+                "message": {"content": '{"topics_to_review": ["Past simple tense", "Subject-verb agreement"]}'}
             }
 
             result = generate_review(session)
-            assert result["total_errors"] == 1
+            assert result["total_errors"] == 2
             assert result["by_type"]["verb_tense"] == 1
+            assert result["by_type"]["agreement"] == 1
+            assert "Past simple tense" in result["topics_to_review"]
 
-    def test_generate_review_invalid_json_response(self):
+    def test_generate_review_no_errors_return_early(self):
         session = {
             "turns": [
-                {"role": "user", "text": "Hello"},
+                {"role": "user", "text": "Hello", "correction": None},
                 {"role": "assistant", "text": "Hi there!"},
+            ]
+        }
+        result = generate_review(session)
+        assert result == {"total_errors": 0, "by_type": {}, "topics_to_review": []}
+
+    def test_generate_review_invalid_json_fallback(self):
+        session = {
+            "turns": [
+                {
+                    "role": "user", "text": "I go to school yesterday",
+                    "correction": {
+                        "original": "I go to school yesterday",
+                        "corrected": "I went to school yesterday",
+                        "explanation_pt": "Use passado simples.",
+                        "error_type": "verb_tense",
+                    },
+                },
+                {"role": "assistant", "text": "That's great!"},
             ]
         }
 
@@ -165,4 +198,6 @@ class TestGenerateReview:
             }
 
             result = generate_review(session)
-            assert result == {"total_errors": 0, "by_type": {}, "topics_to_review": []}
+            assert result["total_errors"] == 1
+            assert result["by_type"]["verb_tense"] == 1
+            assert result["topics_to_review"] == []

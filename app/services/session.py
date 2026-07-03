@@ -51,8 +51,9 @@ def get_session(session_id: str) -> dict | None:
         return None
 
 
-def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | None = None) -> dict:
-    session = get_session(session_id)
+def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | None = None, session: dict | None = None) -> dict:
+    if session is None:
+        session = get_session(session_id)
     if session is None:
         raise ValueError(f"Session not found: {session_id}")
 
@@ -61,7 +62,7 @@ def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | N
         "text": user_text,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    if correction and isinstance(correction, dict):
+    if correction is not None and isinstance(correction, dict):
         required = ("original", "corrected", "explanation_pt", "error_type")
         if all(k in correction for k in required):
             user_turn["correction"] = correction

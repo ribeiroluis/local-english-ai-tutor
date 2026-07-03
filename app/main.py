@@ -132,7 +132,10 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
         logger.error(f"LLM generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
 
-    add_turn(session_id, user_text, result["reply"], correction=result.get("correction"))
+    try:
+        add_turn(session_id, user_text, result["reply"], correction=result.get("correction"), session=session)
+    except Exception as e:
+        logger.error(f"Failed to persist turn for session {session_id}: {e}")
 
     return {
         "transcript": user_text,
@@ -161,7 +164,10 @@ async def api_chat(req: ChatRequest):
         logger.error(f"LLM generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
 
-    add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"))
+    try:
+        add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"), session=session)
+    except Exception as e:
+        logger.error(f"Failed to persist turn for session {req.session_id}: {e}")
 
     return {
         "transcript": req.text,

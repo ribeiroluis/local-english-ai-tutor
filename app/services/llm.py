@@ -107,7 +107,7 @@ def _ollama_chat(messages: list[dict], format_json: bool = False) -> str:
         raise
 
 
-def _parse_reply(raw: str) -> str:
+def _fallback_reply(raw: str) -> str:
     cleaned = raw.strip()
     if not cleaned:
         return "I'm sorry, I couldn't generate a response."
@@ -130,50 +130,65 @@ def generate_with_correction(topic_prompt: str, level: str, context_turns: list[
         if not isinstance(raw_reply, str) or not raw_reply.strip():
             raise ValueError("Missing or empty 'reply' field")
         result = {
-            "reply": _parse_reply(raw_reply),
+            "reply": raw_reply.strip(),
             "correction": correction,
         }
         logger.info(f"LLM parsed: reply={len(result['reply'])} chars, correction={'yes' if correction else 'none'}")
         return result
     except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"Failed to parse structured LLM output: {e}")
-        return {"reply": _parse_reply(reply), "correction": None}
+        return {"reply": _fallback_reply(reply), "correction": None}
+
+
+def _compute_correction_stats(turns: list[dict]) -> dict:
+    by_type: dict[str, int] = {}
+    total = 0
+    for turn in turns:
+        if turn.get("role") == "user" and turn.get("correction"):
+            correction = turn["correction"]
+            etype = correction.get("error_type", "other")
+            by_type[etype] = by_type.get(etype, 0) + 1
+            total += 1
+    return {"total_errors": total, "by_type": by_type}
 
 
 def generate_review(session: dict) -> dict:
     turns = session.get("turns", [])
-    conversation_parts = []
+    stats = _compute_correction_stats(turns)
 
-    for i in range(0, len(turns) - 1, 2):
-        user_turn = turns[i]
-        ai_turn = turns[i + 1]
-        if user_turn["role"] == "user" and ai_turn["role"] == "assistant":
-            conversation_parts.append(f"User: {user_turn['text']}\nAI: {ai_turn['text']}")
+    user_turns = [t for t in turns if t.get("role") == "user"]
+    if not user_turns:
+        return {**stats, "topics_to_review": []}
 
-    if not conversation_parts:
-        return {"total_errors": 0, "by_type": {}, "topics_to_review": []}
+    if stats["total_errors"] == 0:
+        return {**stats, "topics_to_review": []}
 
-    conversation_text = "\n".join(conversation_parts)
+    last_user_turns = user_turns[-10:]
+    context_parts = []
+    for ut in last_user_turns:
+        if ut.get("correction"):
+            context_parts.append(
+                f"User: {ut['text']}\n"
+                f"Correction: {ut['correction'].get('corrected', '')} "
+                f"({ut['correction'].get('explanation_pt', '')})"
+            )
+
+    context_text = "\n".join(context_parts)
 
     prompt = (
-        "You are an English tutor. Review the conversation below and provide an aggregate analysis "
-        "of the student's errors. Return a JSON object with:\n"
-        "- total_errors: total number of errors found\n"
-        "- by_type: object with error_type as key and count as value (types: grammar, verb_tense, article, preposition, vocabulary, word_order, agreement, other)\n"
+        "You are an English tutor. Based on the following corrections from a conversation, "
+        "suggest topics the student should review. Return a JSON object with:\n"
         "- topics_to_review: array of strings with topics the student should review\n\n"
-        'If no errors, return {"total_errors": 0, "by_type": {}, "topics_to_review": []}.\n\n'
-        f"Conversation:\n{conversation_text}\n\n"
-        "JSON analysis:"
+        "Example: {\"topics_to_review\": [\"Past simple tense\", \"Definite articles\"]}\n\n"
+        f"Corrections:\n{context_text}\n\n"
+        "JSON:"
     )
 
     try:
         reply = _ollama_chat([{"role": "user", "content": prompt}], format_json=True)
-        summary = json.loads(reply)
-        if not isinstance(summary, dict):
-            logger.warning(f"Review response is not a dict: {type(summary)}")
-            return {"total_errors": 0, "by_type": {}, "topics_to_review": []}
-        logger.info(f"Review summary generated: {summary.get('total_errors', 0)} total errors")
-        return summary
+        data = json.loads(reply)
+        topics = data.get("topics_to_review", []) if isinstance(data, dict) else []
+        return {**stats, "topics_to_review": topics}
     except (httpx.RequestError, KeyError, ValueError, json.JSONDecodeError) as e:
-        logger.error(f"Review summary generation failed: {e}")
-        return {"total_errors": 0, "by_type": {}, "topics_to_review": []}
+        logger.error(f"Review topics generation failed: {e}")
+        return {**stats, "topics_to_review": []}
