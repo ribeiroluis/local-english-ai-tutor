@@ -367,11 +367,10 @@
 
         addMessage(transcript, "user");
 
-        if (data.correction) {
+        if (data.correction && data.correction.original) {
           addCorrection(data.correction);
         }
 
-        removeThinking();
         addMessage(data.reply || "", "ai");
         setCircleState("processing", "Generating voice...");
 

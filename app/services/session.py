@@ -61,8 +61,12 @@ def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | N
         "text": user_text,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    if correction:
-        user_turn["correction"] = correction
+    if correction and isinstance(correction, dict):
+        required = ("original", "corrected", "explanation_pt", "error_type")
+        if all(k in correction for k in required):
+            user_turn["correction"] = correction
+        else:
+            logger.warning(f"Correction missing required fields: {correction.keys()}")
     session["turns"].append(user_turn)
     session["turns"].append({
         "role": "assistant",

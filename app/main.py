@@ -34,6 +34,17 @@ app = FastAPI(title="English AI Tutor", lifespan=lifespan)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 TOPICS_FILE = Path(__file__).resolve().parent / "prompts" / "topics.json"
 
+_topics_cache: list[dict] | None = None
+
+
+def _load_topics() -> list[dict]:
+    global _topics_cache
+    if _topics_cache is None:
+        with open(TOPICS_FILE, "r", encoding="utf-8") as f:
+            _topics_cache = json.load(f)
+    return _topics_cache
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -68,8 +79,7 @@ async def index():
 @app.get("/api/topics")
 async def get_topics():
     try:
-        with open(TOPICS_FILE, "r", encoding="utf-8") as f:
-            topics = json.load(f)
+        topics = _load_topics()
     except FileNotFoundError:
         logger.error(f"Topics file not found: {TOPICS_FILE}")
         raise HTTPException(status_code=500, detail="Topics data not available")
@@ -111,8 +121,7 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    with open(TOPICS_FILE, "r", encoding="utf-8") as f:
-        topics = json.load(f)
+    topics = _load_topics()
     topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
 
     try:
@@ -141,8 +150,7 @@ async def api_chat(req: ChatRequest):
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    with open(TOPICS_FILE, "r", encoding="utf-8") as f:
-        topics = json.load(f)
+    topics = _load_topics()
     topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
 
     try:
