@@ -3,7 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from app.services.session import add_turn, create_session, get_session
+from app.services.session import (
+    CEFR_LEVELS,
+    add_turn,
+    adjust_cefr_level,
+    create_session,
+    get_session,
+    load_user_progress,
+)
 
 
 def test_add_turn(client):
@@ -53,3 +60,65 @@ def test_add_turn_includes_timestamp(client):
     session = add_turn(session_id, "Hi", "Hello")
     assert "timestamp" in session["turns"][0]
     assert "timestamp" in session["turns"][1]
+
+
+def _build_session_with_errors(client, level: str, error_ratio: float, total_turns: int = 6) -> str:
+    resp = client.post("/api/sessions", json={"topic": "small-talk", "level": level})
+    session_id = resp.json()["session_id"]
+
+    error_turns = max(1, round(total_turns * error_ratio))
+    for i in range(total_turns):
+        user_text = "I has error" if i < error_turns else "I have no error"
+        correction = {"original": "I has error", "corrected": "I have an error", "explanation_pt": "Teste.", "error_type": "grammar"} if i < error_turns else None
+        add_turn(session_id, user_text, "OK", correction=correction)
+    return session_id
+
+
+class TestCefrAdjustment:
+    def test_error_ratio_50pct_goes_down(self, client):
+        session_id = _build_session_with_errors(client, "B1", 0.5, 6)
+        result = adjust_cefr_level(session_id)
+        assert result["to"] == "A2"
+        assert result["from"] == "B1"
+
+    def test_error_ratio_5pct_goes_up(self, client):
+        session_id = _build_session_with_errors(client, "B1", 0.05, 20)
+        result = adjust_cefr_level(session_id)
+        assert result["to"] == "B2"
+        assert result["from"] == "B1"
+
+    def test_error_ratio_25pct_stays_same(self, client):
+        session_id = _build_session_with_errors(client, "B1", 0.25, 8)
+        result = adjust_cefr_level(session_id)
+        assert result["to"] == "B1"
+        assert result["from"] == "B1"
+
+    def test_never_below_a1(self, client):
+        session_id = _build_session_with_errors(client, "A1", 0.5, 6)
+        result = adjust_cefr_level(session_id)
+        assert result["to"] == "A1"
+
+    def test_never_above_c2(self, client):
+        session_id = _build_session_with_errors(client, "C2", 0.0, 6)
+        result = adjust_cefr_level(session_id)
+        assert result["to"] == "C2"
+
+    def test_zero_user_turns_keeps_level(self, client):
+        resp = client.post("/api/sessions", json={"topic": "small-talk", "level": "B1"})
+        session_id = resp.json()["session_id"]
+        result = adjust_cefr_level(session_id)
+        assert result["to"] == "B1"
+        assert result["total_turns"] == 0
+
+    def test_persists_to_progress_file(self, client):
+        session_id = _build_session_with_errors(client, "B1", 0.5, 6)
+        adjust_cefr_level(session_id)
+        progress = load_user_progress()
+        assert progress["current_cefr"] == "A2"
+        assert progress["total_sessions"] >= 1
+
+    def test_accumulates_errors_by_type(self, client):
+        session_id = _build_session_with_errors(client, "B1", 0.5, 6)
+        adjust_cefr_level(session_id)
+        progress = load_user_progress()
+        assert progress["errors_by_type"].get("grammar", 0) >= 1
