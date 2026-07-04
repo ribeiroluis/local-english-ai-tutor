@@ -140,16 +140,18 @@ if command -v ollama &>/dev/null; then
     fi
 fi
 
-# Pull model
+# Pull models
 if [ "$OLLAMA_RUNNING" = true ]; then
-    MODEL="qwen2.5:3b"
-    if ollama list 2>/dev/null | grep -q "$MODEL"; then
-        echo "  Model $MODEL already pulled"
-    else
-        echo "  Pulling model $MODEL (may take several minutes)..."
-        ollama pull "$MODEL"
-        echo "  Model $MODEL pulled"
-    fi
+    MODELS="qwen2.5:3b qwen2.5:1.5b llama3.2:1b"
+    for MODEL in $MODELS; do
+        if ollama list 2>/dev/null | grep -q "$MODEL"; then
+            echo "  Model $MODEL already pulled"
+        else
+            echo "  Pulling model $MODEL (may take several minutes)..."
+            ollama pull "$MODEL"
+            echo "  Model $MODEL pulled"
+        fi
+    done
 else
     echo "  Skipping model pull (Ollama not running)"
 fi
