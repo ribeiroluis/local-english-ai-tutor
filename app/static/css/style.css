@@ -127,13 +127,15 @@ h2 {
   color: var(--color-text-secondary);
 }
 
-.level-selector {
+.level-selector,
+.opt-group {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
 }
 
-.level-btn {
+.level-btn,
+.opt-btn {
   flex: 1;
   min-width: 48px;
   padding: 10px 0;
@@ -149,10 +151,15 @@ h2 {
   -webkit-tap-highlight-color: transparent;
 }
 
-.level-btn.is-selected {
+.level-btn.is-selected,
+.opt-btn.is-selected {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: #ffffff;
+}
+
+.opt-section {
+  margin-top: 4px;
 }
 
 .start-btn {

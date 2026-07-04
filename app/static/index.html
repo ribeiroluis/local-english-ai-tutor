@@ -46,6 +46,39 @@
       </div>
     </section>
 
+    <section class="opt-section">
+      <h2>STT Model</h2>
+      <div class="opt-group" data-group="stt_model">
+        <button class="opt-btn is-selected" data-value="base.en">base.en</button>
+        <button class="opt-btn" data-value="tiny.en">tiny.en</button>
+      </div>
+    </section>
+
+    <section class="opt-section">
+      <h2>STT Beam</h2>
+      <div class="opt-group" data-group="stt_beam">
+        <button class="opt-btn is-selected" data-value="5">Preciso (5)</button>
+        <button class="opt-btn" data-value="1">Rápido (1)</button>
+      </div>
+    </section>
+
+    <section class="opt-section">
+      <h2>LLM Model</h2>
+      <div class="opt-group" data-group="llm_model">
+        <button class="opt-btn is-selected" data-value="qwen2.5:3b">qwen2.5:3b</button>
+        <button class="opt-btn" data-value="qwen2.5:1.5b">qwen2.5:1.5b</button>
+        <button class="opt-btn" data-value="llama3.2:1b">llama3.2:1b</button>
+      </div>
+    </section>
+
+    <section class="opt-section">
+      <h2>LLM Context</h2>
+      <div class="opt-group" data-group="llm_context">
+        <button class="opt-btn is-selected" data-value="10">10 turnos</button>
+        <button class="opt-btn" data-value="5">5 turnos</button>
+      </div>
+    </section>
+
     <button id="start-btn" class="start-btn" disabled>Start Conversation</button>
   </div>
 
