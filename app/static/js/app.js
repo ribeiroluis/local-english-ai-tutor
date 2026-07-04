@@ -3,6 +3,10 @@
   var selectedTopic = null;
   var selectedLevel = null;
   var sessionId = null;
+  var sttModel = "base.en";
+  var sttBeam = 5;
+  var llmModel = "qwen2.5:3b";
+  var llmContext = 10;
   var mediaRecorder = null;
   var audioChunks = [];
   var isRecording = false;
@@ -223,6 +227,24 @@
     });
   });
 
+  var optGroups = document.querySelectorAll(".opt-group");
+  optGroups.forEach(function (group) {
+    var btns = group.querySelectorAll(".opt-btn");
+    btns.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        btns.forEach(function (b) { b.classList.remove("is-selected"); });
+        btn.classList.add("is-selected");
+        var val = btn.dataset.value;
+        switch (group.dataset.group) {
+          case "stt_model": sttModel = val; break;
+          case "stt_beam": sttBeam = parseInt(val, 10); break;
+          case "llm_model": llmModel = val; break;
+          case "llm_context": llmContext = parseInt(val, 10); break;
+        }
+      });
+    });
+  });
+
   startBtn.addEventListener("click", function () {
     if (!selectedTopic || !selectedLevel) return;
     startBtn.disabled = true;
@@ -231,7 +253,12 @@
     fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: selectedTopic, level: selectedLevel }),
+      body: JSON.stringify({
+        topic: selectedTopic,
+        level: selectedLevel,
+        llm_model: llmModel,
+        context_turns: llmContext,
+      }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -352,14 +379,15 @@
 
     var formData = new FormData();
     formData.append("file", wavBlob, "recording.wav");
-    formData.append("session_id", sessionId);
+    formData.append("beam_size", String(sttBeam));
+    formData.append("stt_model", sttModel);
 
-    setCircleState("processing", "Thinking...");
+    setCircleState("processing", "Transcribing...");
 
-    fetch("/api/converse", { method: "POST", body: formData })
+    fetch("/api/transcribe", { method: "POST", body: formData })
       .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var transcript = data.transcript || "";
+      .then(function (sttData) {
+        var transcript = sttData.text || "";
         if (!transcript) {
           logError("Empty transcription");
           setCircleState("idle", "Could not understand audio");
@@ -367,6 +395,23 @@
         }
 
         addMessage(transcript, "user");
+        setCircleState("processing", "Thinking...");
+        addThinking();
+
+        return fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            text: transcript,
+            llm_model: llmModel,
+            context_turns: llmContext,
+          }),
+        });
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        removeThinking();
 
         if (data.correction && data.correction.original) {
           addCorrection(data.correction);
@@ -404,7 +449,8 @@
           });
       })
       .catch(function (err) {
-        logError("Converse error:", err);
+        logError("Process audio error:", err);
+        removeThinking();
         setCircleState("idle", "AI unavailable");
       });
   }

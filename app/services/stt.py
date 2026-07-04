@@ -5,23 +5,23 @@ from app.services.logger import setup_logger
 
 logger = setup_logger()
 
-_model = None
+_models: dict[str, WhisperModel] = {}
 
 
-def _get_model():
-    global _model
-    if _model is None:
-        logger.info(f"Loading whisper model: {settings.whisper_model_size}")
-        _model = WhisperModel(settings.whisper_model_size, device="cpu", compute_type="int8")
-        logger.info("Whisper model loaded")
-    return _model
+def _get_model(model_size: str | None = None) -> WhisperModel:
+    size = model_size or settings.whisper_model_size
+    if size not in _models:
+        logger.info(f"Loading whisper model: {size}")
+        _models[size] = WhisperModel(size, device="cpu", compute_type="int8")
+        logger.info(f"Whisper model {size} loaded")
+    return _models[size]
 
 
-def transcribe(audio_bytes: bytes) -> dict:
+def transcribe(audio_bytes: bytes, beam_size: int = 5, model_size: str | None = None) -> dict:
     import io
     import wave
 
-    model = _get_model()
+    model = _get_model(model_size)
 
     try:
         with io.BytesIO(audio_bytes) as buf:
@@ -41,7 +41,7 @@ def transcribe(audio_bytes: bytes) -> dict:
         logger.error(f"Failed to decode audio: {e}")
         return {"text": "", "confidence": 0.0, "duration_sec": 0.0, "error": str(e)}
 
-    segments, info = model.transcribe(audio, beam_size=5, language="en")
+    segments, info = model.transcribe(audio, beam_size=beam_size, language="en")
     result = list(segments)
 
     text = " ".join(seg.text for seg in result) if result else ""

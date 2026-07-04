@@ -6,7 +6,6 @@ from app.services.logger import setup_logger
 
 logger = setup_logger()
 
-OLLAMA_MODEL = "qwen2.5:3b"
 OLLAMA_TIMEOUT = 60.0
 
 LEVEL_INSTRUCTIONS = {
@@ -34,27 +33,27 @@ CORRECTION_INSTRUCTIONS = (
 )
 
 
-def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> list[dict]:
+def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, context_window: int = 10) -> list[dict]:
     level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
     system = f"{topic_prompt}\n\nLevel: {level}. {level_instruction}\n\n{CORRECTION_INSTRUCTIONS}"
 
     messages = [{"role": "system", "content": system}]
 
-    for turn in context_turns[-20:]:
+    for turn in context_turns[-(context_window * 2):]:
         messages.append({"role": turn["role"], "content": turn["text"]})
 
     messages.append({"role": "user", "content": user_text})
     return messages
 
 
-def _call_generate_fallback(messages: list[dict], format_json: bool) -> str:
+def _call_generate_fallback(messages: list[dict], format_json: bool, model: str) -> str:
     prompt_text = ""
     for m in messages:
         role_label = m["role"].upper() if m["role"] != "system" else "SYSTEM"
         prompt_text += f"{role_label}: {m['content']}\n"
     prompt_text += "ASSISTANT:"
 
-    gen_payload: dict = {"model": OLLAMA_MODEL, "prompt": prompt_text, "stream": False}
+    gen_payload: dict = {"model": model, "prompt": prompt_text, "stream": False}
     if format_json:
         gen_payload["format"] = "json"
 
@@ -70,9 +69,9 @@ def _call_generate_fallback(messages: list[dict], format_json: bool) -> str:
     raise ValueError("Unexpected /api/generate response format")
 
 
-def _ollama_chat(messages: list[dict], format_json: bool = False) -> str:
+def _ollama_chat(messages: list[dict], format_json: bool = False, model: str = "qwen2.5:3b") -> str:
     url = f"{settings.ollama_host}/api/chat"
-    payload: dict = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
+    payload: dict = {"model": model, "messages": messages, "stream": False}
     if format_json:
         payload["format"] = "json"
 
@@ -82,7 +81,7 @@ def _ollama_chat(messages: list[dict], format_json: bool = False) -> str:
 
         if resp.status_code == 404:
             logger.info("Ollama /api/chat returned 404, falling back to /api/generate")
-            return _call_generate_fallback(messages, format_json)
+            return _call_generate_fallback(messages, format_json, model)
 
         resp.raise_for_status()
         data = resp.json()
@@ -98,7 +97,7 @@ def _ollama_chat(messages: list[dict], format_json: bool = False) -> str:
     except httpx.RequestError as e:
         logger.warning(f"Ollama /api/chat request failed ({e}), falling back to /api/generate")
         try:
-            return _call_generate_fallback(messages, format_json)
+            return _call_generate_fallback(messages, format_json, model)
         except httpx.RequestError as fallback_err:
             logger.error(f"Ollama /api/generate fallback also failed: {fallback_err}")
             raise
@@ -114,9 +113,9 @@ def _fallback_reply(raw: str) -> str:
     return cleaned
 
 
-def generate_with_correction(topic_prompt: str, level: str, context_turns: list[dict], user_text: str) -> dict:
-    messages = build_messages(topic_prompt, level, context_turns, user_text)
-    reply = _ollama_chat(messages, format_json=True)
+def generate_with_correction(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, llm_model: str = "qwen2.5:3b", context_window: int = 10) -> dict:
+    messages = build_messages(topic_prompt, level, context_turns, user_text, context_window=context_window)
+    reply = _ollama_chat(messages, format_json=True, model=llm_model)
     logger.info(f"LLM raw reply: {len(reply)} chars")
 
     try:
@@ -155,6 +154,7 @@ def _compute_correction_stats(turns: list[dict]) -> dict:
 def generate_review(session: dict) -> dict:
     turns = session.get("turns", [])
     stats = _compute_correction_stats(turns)
+    llm_model = session.get("llm_model", "qwen2.5:3b")
 
     user_turns = [t for t in turns if t.get("role") == "user"]
     if not user_turns:
@@ -185,7 +185,7 @@ def generate_review(session: dict) -> dict:
     )
 
     try:
-        reply = _ollama_chat([{"role": "user", "content": prompt}], format_json=True)
+        reply = _ollama_chat([{"role": "user", "content": prompt}], format_json=True, model=llm_model)
         data = json.loads(reply)
         topics = data.get("topics_to_review", []) if isinstance(data, dict) else []
         return {**stats, "topics_to_review": topics}

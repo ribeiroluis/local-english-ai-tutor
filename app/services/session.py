@@ -15,7 +15,7 @@ DEFAULT_TOPIC = "small-talk"
 DEFAULT_LEVEL = "A2"
 
 
-def create_session(topic: str, level: str) -> dict:
+def create_session(topic: str, level: str, llm_model: str = "qwen2.5:3b", context_turns: int = 10) -> dict:
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     session_id = str(uuid.uuid4())
@@ -23,6 +23,8 @@ def create_session(topic: str, level: str) -> dict:
         "session_id": session_id,
         "topic": topic,
         "level": level,
+        "llm_model": llm_model,
+        "context_turns": context_turns,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "turns": [],
     }
