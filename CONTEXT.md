@@ -26,11 +26,25 @@ A conversation scenario (small-talk, job-interview, restaurant, travel). Defines
 
 ## Architecture Decisions
 
-- **STT**: faster-whisper `base.en`.
-- **LLM**: Ollama `qwen2.5:3b`.
+- **STT**: faster-whisper. Supports `base.en` (default, 74M params) and `tiny.en` (39M, ~2x faster). Selected via toggle in welcome screen.
+- **LLM**: Ollama. Supports `qwen2.5:3b` (default), `qwen2.5:1.5b` (~2-3x faster), `llama3.2:1b` (~3-4x faster). Selected via toggle.
 - **TTS**: Piper TTS `en_US-lessac-medium`.
 - **Correction**: end-of-session only. Single-pass (reply + correction = one LLM call at end, not per-turn).
-- **Context**: last 10 turns sent to LLM.
+- **Context**: last 10 turns (default) or 5 turns sent to LLM. Selected via toggle.
+- **Pipeline**: always separated. Transcribe first (shows transcript immediately), then chat (LLM generates reply). User sees their text while LLM processes.
 - **Persistence**: JSON files, not SQLite (MVP).
 - **Auth**: none (single user).
 - **Audio format**: WAV 16-bit mono 16kHz from browser MediaRecorder.
+
+## Optimization Toggles
+
+Welcome screen offers 4 independent radio groups:
+
+| Toggle | Option 1 | Option 2 | Option 3 |
+|--------|----------|----------|----------|
+| STT Model | `base.en` (accurate) | `tiny.en` (fast) | — |
+| STT Beam | Preciso (5) | Rápido (1) | — |
+| LLM Model | `qwen2.5:3b` | `qwen2.5:1.5b` | `llama3.2:1b` |
+| LLM Context | 10 turnos | 5 turnos | — |
+
+STT options affect transcribe speed; LLM options affect reply generation speed. All toggles are independent.

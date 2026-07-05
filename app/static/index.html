@@ -46,6 +46,43 @@
       </div>
     </section>
 
+    <section class="opt-section">
+      <h2>STT Model <span class="opt-sub">(speech recognition accuracy vs speed)</span></h2>
+      <div class="opt-group" data-group="stt_model">
+        <button class="opt-btn is-selected" data-value="base.en" data-desc="Balanced accuracy and speed (74M params)">base.en</button>
+        <button class="opt-btn" data-value="tiny.en" data-desc="Fast, slightly less accurate (39M params)">tiny.en</button>
+      </div>
+      <p class="opt-desc" id="desc-stt_model">Balanced accuracy and speed (74M params)</p>
+    </section>
+
+    <section class="opt-section">
+      <h2>STT Beam <span class="opt-sub">(search thoroughness vs speed)</span></h2>
+      <div class="opt-group" data-group="stt_beam">
+        <button class="opt-btn is-selected" data-value="5" data-desc="Thorough beam search, more accurate, slower">Preciso (5)</button>
+        <button class="opt-btn" data-value="1" data-desc="Greedy search, faster, may miss words">Rápido (1)</button>
+      </div>
+      <p class="opt-desc" id="desc-stt_beam">Thorough beam search, more accurate, slower</p>
+    </section>
+
+    <section class="opt-section">
+      <h2>LLM Model <span class="opt-sub">(response quality vs speed)</span></h2>
+      <div class="opt-group" data-group="llm_model">
+        <button class="opt-btn is-selected" data-value="qwen2.5:3b" data-desc="Balanced quality (1.9GB)">qwen2.5:3b</button>
+        <button class="opt-btn" data-value="qwen2.5:1.5b" data-desc="Faster, simpler replies (1GB)">qwen2.5:1.5b</button>
+        <button class="opt-btn" data-value="llama3.2:1b" data-desc="Fastest, most limited (0.7GB)">llama3.2:1b</button>
+      </div>
+      <p class="opt-desc" id="desc-llm_model">Balanced quality (1.9GB)</p>
+    </section>
+
+    <section class="opt-section">
+      <h2>LLM Context <span class="opt-sub">(memory of past turns)</span></h2>
+      <div class="opt-group" data-group="llm_context">
+        <button class="opt-btn is-selected" data-value="10" data-desc="More context-aware, slower">10 turns</button>
+        <button class="opt-btn" data-value="5" data-desc="Faster, remembers less">5 turns</button>
+      </div>
+      <p class="opt-desc" id="desc-llm_context">More context-aware, slower</p>
+    </section>
+
     <button id="start-btn" class="start-btn" disabled>Start Conversation</button>
   </div>
 
@@ -83,6 +120,6 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/app.js?v=2"></script>
 </body>
 </html>

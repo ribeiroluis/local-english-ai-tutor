@@ -52,6 +52,8 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 class StartSessionRequest(BaseModel):
     topic: str
     level: str
+    llm_model: str = "qwen2.5:3b"
+    context_turns: int = 10
 
 
 class ReviewRequest(BaseModel):
@@ -61,6 +63,8 @@ class ReviewRequest(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     text: str
+    llm_model: str = "qwen2.5:3b"
+    context_turns: int = 10
 
 
 class TTSRequest(BaseModel):
@@ -97,22 +101,22 @@ async def get_progress():
 
 @app.post("/api/sessions")
 async def start_session(req: StartSessionRequest):
-    session = create_session(req.topic, req.level)
+    session = create_session(req.topic, req.level, llm_model=req.llm_model, context_turns=req.context_turns)
     return {"session_id": session["session_id"]}
 
 
 @app.post("/api/transcribe")
-async def api_transcribe(file: UploadFile = File(...)):
+async def api_transcribe(file: UploadFile = File(...), beam_size: int = Form(5), stt_model: str = Form("base.en")):
     audio_bytes = await file.read()
-    result = transcribe(audio_bytes)
+    result = transcribe(audio_bytes, beam_size=beam_size, model_size=stt_model)
     return result
 
 
 @app.post("/api/converse")
-async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)):
+async def api_converse(file: UploadFile = File(...), session_id: str = Form(...), beam_size: int = Form(5), stt_model: str = Form("base.en")):
     audio_bytes = await file.read()
 
-    stt_result = transcribe(audio_bytes)
+    stt_result = transcribe(audio_bytes, beam_size=beam_size, model_size=stt_model)
     user_text = stt_result.get("text", "")
     if not user_text:
         logger.warning(f"Empty transcription for session {session_id}")
@@ -127,7 +131,9 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
 
     try:
         result = generate_with_correction(
-            topic["system_prompt"], session["level"], session["turns"], user_text
+            topic["system_prompt"], session["level"], session["turns"], user_text,
+            llm_model=session.get("llm_model", "qwen2.5:3b"),
+            context_window=session.get("context_turns", 10),
         )
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
@@ -159,7 +165,9 @@ async def api_chat(req: ChatRequest):
 
     try:
         result = generate_with_correction(
-            topic["system_prompt"], session["level"], session["turns"], req.text
+            topic["system_prompt"], session["level"], session["turns"], req.text,
+            llm_model=req.llm_model,
+            context_window=req.context_turns,
         )
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
