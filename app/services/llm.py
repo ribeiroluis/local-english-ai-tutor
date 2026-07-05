@@ -9,12 +9,12 @@ logger = setup_logger()
 OLLAMA_TIMEOUT = 60.0
 
 LEVEL_INSTRUCTIONS = {
-    "A1": "Use very simple sentences and basic vocabulary. Speak slowly and clearly. Keep responses under 3 sentences.",
-    "A2": "Use simple sentences. Avoid complex grammar. Keep responses under 4 sentences.",
-    "B1": "Use moderate complexity. Natural conversational English.",
-    "B2": "Use natural conversational English. Occasional idioms are okay.",
-    "C1": "Use sophisticated vocabulary and natural idioms.",
-    "C2": "Use native-level English with full complexity.",
+    "A1": "Use very simple sentences and basic vocabulary. Speak slowly and clearly. Keep responses under 2 sentences. Always end with a simple yes/no question.",
+    "A2": "Use simple sentences. Avoid complex grammar. Keep responses under 3 sentences. Always end with a simple question.",
+    "B1": "Use moderate complexity. Natural conversational English. Always end with a question.",
+    "B2": "Use natural conversational English. Occasional idioms are okay. Always end with a question or prompt.",
+    "C1": "Use sophisticated vocabulary and natural idioms. Always end with an open-ended question.",
+    "C2": "Use native-level English with full complexity. Always end with a thought-provoking question.",
 }
 
 CORRECTION_INSTRUCTIONS = (
@@ -29,6 +29,7 @@ CORRECTION_INSTRUCTIONS = (
     '  }\n'
     '}\n'
     'If the user made no errors, set "correction" to null.\n'
+    'End your reply with a question to keep the conversation moving.\n'
     'Always respond in valid JSON.'
 )
 
@@ -137,6 +138,28 @@ def generate_with_correction(topic_prompt: str, level: str, context_turns: list[
     except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"Failed to parse structured LLM output: {e}")
         return {"reply": _fallback_reply(reply), "correction": None}
+
+
+def generate_opening(topic_prompt: str, level: str, llm_model: str = "qwen2.5:3b") -> dict:
+    level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
+    prompt = (
+        f"{topic_prompt}\n\n"
+        f"Level: {level}. {level_instruction}\n\n"
+        "You are starting a new conversation. Introduce the topic briefly "
+        "and ask the user a question to begin.\n\n"
+        'Respond in JSON format: {"reply": "Your opening message here"}'
+    )
+    reply = _ollama_chat([{"role": "system", "content": prompt}], format_json=True, model=llm_model)
+    try:
+        data = json.loads(reply)
+        result_reply = data.get("reply", "")
+        if not isinstance(result_reply, str) or not result_reply.strip():
+            raise ValueError("Missing or empty 'reply' field")
+        logger.info(f"Opening generated: {len(result_reply)} chars")
+        return {"reply": result_reply.strip()}
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Failed to parse opening LLM output: {e}")
+        return {"reply": _fallback_reply(reply)}
 
 
 def _compute_correction_stats(turns: list[dict]) -> dict:

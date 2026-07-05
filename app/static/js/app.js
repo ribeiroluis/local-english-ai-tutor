@@ -268,10 +268,45 @@
         chatTopicLabel.textContent = selectedTopic;
         chatLevelLabel.textContent = selectedLevel;
         messageList.innerHTML = "";
-        setCircleState("idle", "Tap mic to start");
         showChat();
         startBtn.disabled = false;
         startBtn.textContent = "Start Conversation";
+
+        setCircleState("processing", "Thinking...");
+
+        fetch("/api/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            addMessage(data.reply || "", "ai");
+            setCircleState("processing", "Generating voice...");
+
+            return fetch("/api/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: data.reply || "" }),
+            });
+          })
+          .then(function (r) { return r.blob(); })
+          .then(function (blob) {
+            if (blob.size === 0) {
+              logError("TTS returned empty blob");
+              setCircleState("idle", "Tap mic to start");
+              return;
+            }
+            setCircleState("playing", "Playing...");
+            return blobToArrayBuffer(blob);
+          })
+          .then(function (buf) {
+            if (buf) startPlaybackVisualizer(buf);
+          })
+          .catch(function (err) {
+            logError("Start conversation error:", err);
+            setCircleState("idle", "Tap mic to start");
+          });
       })
       .catch(function () {
         startBtn.disabled = false;

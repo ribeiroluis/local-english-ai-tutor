@@ -31,7 +31,8 @@ A conversation scenario (small-talk, job-interview, restaurant, travel). Defines
 - **TTS**: Piper TTS `en_US-lessac-medium`.
 - **Correction**: end-of-session only. Single-pass (reply + correction = one LLM call at end, not per-turn).
 - **Context**: last 10 turns (default) or 5 turns sent to LLM. Selected via toggle.
-- **Pipeline**: always separated. Transcribe first (shows transcript immediately), then chat (LLM generates reply). User sees their text while LLM processes.
+- **Pipeline**: always separated. Start first (AI opens with question), then transcribe (shows transcript immediately), then chat (LLM generates reply + correction + next question). User sees their text while LLM processes.
+- **Conversation style**: AI drives the conversation. Always ends reply with a question. First turn is AI-only opening.
 - **Persistence**: JSON files, not SQLite (MVP).
 - **Auth**: none (single user).
 - **Audio format**: WAV 16-bit mono 16kHz from browser MediaRecorder.

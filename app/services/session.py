@@ -54,6 +54,23 @@ def get_session(session_id: str) -> dict | None:
         return None
 
 
+def add_opening_turn(session_id: str, ai_text: str, session: dict | None = None) -> dict:
+    if session is None:
+        session = get_session(session_id)
+    if session is None:
+        raise ValueError(f"Session not found: {session_id}")
+    session["turns"].append({
+        "role": "assistant",
+        "text": ai_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    filepath = SESSIONS_DIR / f"{session_id}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(session, f, indent=2, ensure_ascii=False)
+    logger.info(f"Opening turn added to session {session_id}: ai={len(ai_text)} chars")
+    return session
+
+
 def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | None = None, session: dict | None = None) -> dict:
     if session is None:
         session = get_session(session_id)

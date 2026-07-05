@@ -8,9 +8,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.config import settings
-from app.services.llm import generate_review, generate_with_correction
+from app.services.llm import generate_opening, generate_review, generate_with_correction
 from app.services.logger import setup_logger
 from app.services.session import (
+    add_opening_turn,
     add_turn,
     adjust_cefr_level,
     create_session,
@@ -54,6 +55,10 @@ class StartSessionRequest(BaseModel):
     level: str
     llm_model: str = "qwen2.5:3b"
     context_turns: int = 10
+
+
+class StartConversationRequest(BaseModel):
+    session_id: str
 
 
 class ReviewRequest(BaseModel):
@@ -103,6 +108,30 @@ async def get_progress():
 async def start_session(req: StartSessionRequest):
     session = create_session(req.topic, req.level, llm_model=req.llm_model, context_turns=req.context_turns)
     return {"session_id": session["session_id"]}
+
+
+@app.post("/api/start")
+async def api_start(req: StartConversationRequest):
+    session = get_session(req.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    topics = _load_topics()
+    topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
+    llm_model = session.get("llm_model", "qwen2.5:3b")
+
+    try:
+        result = generate_opening(topic["system_prompt"], session["level"], llm_model=llm_model)
+    except Exception as e:
+        logger.error(f"Opening generation failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Opening failed: {str(e)}")
+
+    try:
+        add_opening_turn(req.session_id, result["reply"], session=session)
+    except Exception as e:
+        logger.error(f"Failed to persist opening turn for session {req.session_id}: {e}")
+
+    return {"reply": result["reply"]}
 
 
 @app.post("/api/transcribe")
