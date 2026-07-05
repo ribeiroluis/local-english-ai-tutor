@@ -158,6 +158,27 @@ h2 {
   color: #ffffff;
 }
 
+.name-input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.name-input:focus {
+  border-color: var(--color-primary);
+}
+
+.name-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
 .opt-section {
   margin-top: 4px;
 }

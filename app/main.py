@@ -47,12 +47,26 @@ def _load_topics() -> list[dict]:
     return _topics_cache
 
 
+def _get_topic(session: dict) -> dict:
+    topics = _load_topics()
+    if not topics:
+        logger.error("No topics loaded")
+        raise HTTPException(status_code=500, detail="No topics available")
+    topic_id = session.get("topic", "")
+    topic = next((t for t in topics if t["id"] == topic_id), None)
+    if topic is None:
+        logger.warning(f"Topic '{topic_id}' not found, falling back to first topic")
+        topic = topics[0]
+    return topic
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 class StartSessionRequest(BaseModel):
     topic: str
     level: str
+    user_name: str = ""
     llm_model: str = "qwen2.5:3b"
     context_turns: int = 10
 
@@ -106,7 +120,7 @@ async def get_progress():
 
 @app.post("/api/sessions")
 async def start_session(req: StartSessionRequest):
-    session = create_session(req.topic, req.level, llm_model=req.llm_model, context_turns=req.context_turns)
+    session = create_session(req.topic, req.level, user_name=req.user_name, llm_model=req.llm_model, context_turns=req.context_turns)
     return {"session_id": session["session_id"]}
 
 
@@ -116,12 +130,12 @@ async def api_start(req: StartConversationRequest):
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    topics = _load_topics()
-    topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
+    topic = _get_topic(session)
     llm_model = session.get("llm_model", "qwen2.5:3b")
+    user_name = session.get("user_name", "")
 
     try:
-        result = generate_opening(topic["system_prompt"], session["level"], llm_model=llm_model)
+        result = generate_opening(topic["system_prompt"], session["level"], user_name=user_name, llm_model=llm_model)
     except Exception as e:
         logger.error(f"Opening generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"Opening failed: {str(e)}")
@@ -130,6 +144,7 @@ async def api_start(req: StartConversationRequest):
         add_opening_turn(req.session_id, result["reply"], session=session)
     except Exception as e:
         logger.error(f"Failed to persist opening turn for session {req.session_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to persist opening turn: {str(e)}")
 
     return {"reply": result["reply"]}
 
@@ -155,12 +170,13 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    topics = _load_topics()
-    topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
+    topic = _get_topic(session)
+    user_name = session.get("user_name", "")
 
     try:
         result = generate_with_correction(
             topic["system_prompt"], session["level"], session["turns"], user_text,
+            user_name=user_name,
             llm_model=session.get("llm_model", "qwen2.5:3b"),
             context_window=session.get("context_turns", 10),
         )
@@ -172,6 +188,7 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
         add_turn(session_id, user_text, result["reply"], correction=result.get("correction"), session=session)
     except Exception as e:
         logger.error(f"Failed to persist turn for session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to persist turn: {str(e)}")
 
     return {
         "transcript": user_text,
@@ -189,12 +206,13 @@ async def api_chat(req: ChatRequest):
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    topics = _load_topics()
-    topic = next((t for t in topics if t["id"] == session["topic"]), topics[0])
+    topic = _get_topic(session)
+    user_name = session.get("user_name", "")
 
     try:
         result = generate_with_correction(
             topic["system_prompt"], session["level"], session["turns"], req.text,
+            user_name=user_name,
             llm_model=req.llm_model,
             context_window=req.context_turns,
         )
@@ -206,6 +224,7 @@ async def api_chat(req: ChatRequest):
         add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"), session=session)
     except Exception as e:
         logger.error(f"Failed to persist turn for session {req.session_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to persist turn: {str(e)}")
 
     return {
         "transcript": req.text,

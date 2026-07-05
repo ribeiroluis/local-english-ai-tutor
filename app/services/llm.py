@@ -34,9 +34,11 @@ CORRECTION_INSTRUCTIONS = (
 )
 
 
-def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, context_window: int = 10) -> list[dict]:
+def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, user_name: str = "", context_window: int = 10) -> list[dict]:
     level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
     system = f"{topic_prompt}\n\nLevel: {level}. {level_instruction}\n\n{CORRECTION_INSTRUCTIONS}"
+    if user_name:
+        system = f"The user's name is {user_name}. Address them by name naturally in conversation.\n\n{system}"
 
     messages = [{"role": "system", "content": system}]
 
@@ -107,15 +109,18 @@ def _ollama_chat(messages: list[dict], format_json: bool = False, model: str = "
         raise
 
 
+FALLBACK_MSG = "I'm sorry, I couldn't generate a response."
+
+
 def _fallback_reply(raw: str) -> str:
     cleaned = raw.strip()
-    if not cleaned:
-        return "I'm sorry, I couldn't generate a response."
+    if not cleaned or len(cleaned) < 5 or cleaned in ("{}", "[]", '""'):
+        return FALLBACK_MSG
     return cleaned
 
 
-def generate_with_correction(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, llm_model: str = "qwen2.5:3b", context_window: int = 10) -> dict:
-    messages = build_messages(topic_prompt, level, context_turns, user_text, context_window=context_window)
+def generate_with_correction(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, user_name: str = "", llm_model: str = "qwen2.5:3b", context_window: int = 10) -> dict:
+    messages = build_messages(topic_prompt, level, context_turns, user_text, user_name=user_name, context_window=context_window)
     reply = _ollama_chat(messages, format_json=True, model=llm_model)
     logger.info(f"LLM raw reply: {len(reply)} chars")
 
@@ -140,11 +145,13 @@ def generate_with_correction(topic_prompt: str, level: str, context_turns: list[
         return {"reply": _fallback_reply(reply), "correction": None}
 
 
-def generate_opening(topic_prompt: str, level: str, llm_model: str = "qwen2.5:3b") -> dict:
+def generate_opening(topic_prompt: str, level: str, user_name: str = "", llm_model: str = "qwen2.5:3b") -> dict:
     level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
+    name_line = f"The user's name is {user_name}. Address them by name.\n\n" if user_name else ""
     prompt = (
         f"{topic_prompt}\n\n"
         f"Level: {level}. {level_instruction}\n\n"
+        f"{name_line}"
         "You are starting a new conversation. Introduce the topic briefly "
         "and ask the user a question to begin.\n\n"
         'Respond in JSON format: {"reply": "Your opening message here"}'

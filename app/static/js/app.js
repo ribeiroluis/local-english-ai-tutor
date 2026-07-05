@@ -2,6 +2,7 @@
   var CEFR_INDEX = { A1: 0, A2: 1, B1: 2, B2: 3, C1: 4, C2: 5 };
   var selectedTopic = null;
   var selectedLevel = null;
+  var userName = "";
   var sessionId = null;
   var sttModel = "base.en";
   var sttBeam = 5;
@@ -227,6 +228,13 @@
     });
   });
 
+  var nameInput = document.getElementById("name-input");
+  if (nameInput) {
+    nameInput.addEventListener("input", function () {
+      userName = nameInput.value.trim();
+    });
+  }
+
   var optGroups = document.querySelectorAll(".opt-group");
   optGroups.forEach(function (group) {
     var btns = group.querySelectorAll(".opt-btn");
@@ -258,6 +266,7 @@
       body: JSON.stringify({
         topic: selectedTopic,
         level: selectedLevel,
+        user_name: userName,
         llm_model: llmModel,
         context_turns: llmContext,
       }),
