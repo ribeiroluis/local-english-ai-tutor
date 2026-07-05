@@ -235,6 +235,8 @@
         btns.forEach(function (b) { b.classList.remove("is-selected"); });
         btn.classList.add("is-selected");
         var val = btn.dataset.value;
+        var descEl = document.getElementById("desc-" + group.dataset.group);
+        if (descEl && btn.dataset.desc) descEl.textContent = btn.dataset.desc;
         switch (group.dataset.group) {
           case "stt_model": sttModel = val; break;
           case "stt_beam": sttBeam = parseInt(val, 10); break;
