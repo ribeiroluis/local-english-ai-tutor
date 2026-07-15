@@ -9,12 +9,12 @@ logger = setup_logger()
 OLLAMA_TIMEOUT = 60.0
 
 LEVEL_INSTRUCTIONS = {
-    "A1": "Use very simple sentences and basic vocabulary. Speak slowly and clearly. Keep responses under 3 sentences.",
-    "A2": "Use simple sentences. Avoid complex grammar. Keep responses under 4 sentences.",
-    "B1": "Use moderate complexity. Natural conversational English.",
-    "B2": "Use natural conversational English. Occasional idioms are okay.",
-    "C1": "Use sophisticated vocabulary and natural idioms.",
-    "C2": "Use native-level English with full complexity.",
+    "A1": "Use very simple sentences and basic vocabulary. Speak slowly and clearly. Keep responses under 2 sentences. Always end with a simple yes/no question.",
+    "A2": "Use simple sentences. Avoid complex grammar. Keep responses under 3 sentences. Always end with a simple question.",
+    "B1": "Use moderate complexity. Natural conversational English. Always end with a question.",
+    "B2": "Use natural conversational English. Occasional idioms are okay. Always end with a question or prompt.",
+    "C1": "Use sophisticated vocabulary and natural idioms. Always end with an open-ended question.",
+    "C2": "Use native-level English with full complexity. Always end with a thought-provoking question.",
 }
 
 CORRECTION_INSTRUCTIONS = (
@@ -29,13 +29,16 @@ CORRECTION_INSTRUCTIONS = (
     '  }\n'
     '}\n'
     'If the user made no errors, set "correction" to null.\n'
+    'End your reply with a question to keep the conversation moving.\n'
     'Always respond in valid JSON.'
 )
 
 
-def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, context_window: int = 10) -> list[dict]:
+def build_messages(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, user_name: str = "", context_window: int = 10) -> list[dict]:
     level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
     system = f"{topic_prompt}\n\nLevel: {level}. {level_instruction}\n\n{CORRECTION_INSTRUCTIONS}"
+    if user_name:
+        system = f"The user's name is {user_name}. Address them by name naturally in conversation.\n\n{system}"
 
     messages = [{"role": "system", "content": system}]
 
@@ -46,7 +49,7 @@ def build_messages(topic_prompt: str, level: str, context_turns: list[dict], use
     return messages
 
 
-def _call_generate_fallback(messages: list[dict], format_json: bool, model: str) -> str:
+def _call_generate_fallback(messages: list[dict], format_json: bool, model: str) -> dict:
     prompt_text = ""
     for m in messages:
         role_label = m["role"].upper() if m["role"] != "system" else "SYSTEM"
@@ -65,11 +68,15 @@ def _call_generate_fallback(messages: list[dict], format_json: bool, model: str)
     resp.raise_for_status()
     data = resp.json()
     if "response" in data:
-        return data["response"].strip()
+        return {
+            "content": data["response"].strip(),
+            "prompt_tokens": data.get("prompt_eval_count", 0),
+            "completion_tokens": data.get("eval_count", 0),
+        }
     raise ValueError("Unexpected /api/generate response format")
 
 
-def _ollama_chat(messages: list[dict], format_json: bool = False, model: str = "qwen2.5:3b") -> str:
+def _ollama_chat(messages: list[dict], format_json: bool = False, model: str = "qwen2.5:3b") -> dict:
     url = f"{settings.ollama_host}/api/chat"
     payload: dict = {"model": model, "messages": messages, "stream": False}
     if format_json:
@@ -87,9 +94,17 @@ def _ollama_chat(messages: list[dict], format_json: bool = False, model: str = "
         data = resp.json()
 
         if "message" in data:
-            return data["message"]["content"].strip()
+            return {
+                "content": data["message"]["content"].strip(),
+                "prompt_tokens": data.get("prompt_eval_count", 0),
+                "completion_tokens": data.get("eval_count", 0),
+            }
         elif "response" in data:
-            return data["response"].strip()
+            return {
+                "content": data["response"].strip(),
+                "prompt_tokens": data.get("prompt_eval_count", 0),
+                "completion_tokens": data.get("eval_count", 0),
+            }
         else:
             logger.error(f"Unexpected Ollama response format: {data}")
             raise ValueError("Unexpected Ollama response format")
@@ -106,17 +121,23 @@ def _ollama_chat(messages: list[dict], format_json: bool = False, model: str = "
         raise
 
 
+FALLBACK_MSG = "I'm sorry, I couldn't generate a response."
+
+
 def _fallback_reply(raw: str) -> str:
     cleaned = raw.strip()
-    if not cleaned:
-        return "I'm sorry, I couldn't generate a response."
+    if not cleaned or cleaned in ("{}", "[]", '""'):
+        return FALLBACK_MSG
     return cleaned
 
 
-def generate_with_correction(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, llm_model: str = "qwen2.5:3b", context_window: int = 10) -> dict:
-    messages = build_messages(topic_prompt, level, context_turns, user_text, context_window=context_window)
-    reply = _ollama_chat(messages, format_json=True, model=llm_model)
-    logger.info(f"LLM raw reply: {len(reply)} chars")
+def generate_with_correction(topic_prompt: str, level: str, context_turns: list[dict], user_text: str, user_name: str = "", llm_model: str = "qwen2.5:3b", context_window: int = 10) -> dict:
+    messages = build_messages(topic_prompt, level, context_turns, user_text, user_name=user_name, context_window=context_window)
+    response = _ollama_chat(messages, format_json=True, model=llm_model)
+    pt = response.get("prompt_tokens", 0)
+    ct = response.get("completion_tokens", 0)
+    reply = response["content"]
+    logger.info(f"LLM raw reply: {len(reply)} chars (prompt_tokens={pt}, completion_tokens={ct})")
 
     try:
         data = json.loads(reply)
@@ -131,12 +152,41 @@ def generate_with_correction(topic_prompt: str, level: str, context_turns: list[
         result = {
             "reply": raw_reply.strip(),
             "correction": correction,
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
         }
         logger.info(f"LLM parsed: reply={len(result['reply'])} chars, correction={'yes' if correction else 'none'}")
         return result
     except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"Failed to parse structured LLM output: {e}")
-        return {"reply": _fallback_reply(reply), "correction": None}
+        return {"reply": _fallback_reply(reply), "correction": None, "prompt_tokens": pt, "completion_tokens": ct}
+
+
+def generate_opening(topic_prompt: str, level: str, user_name: str = "", llm_model: str = "qwen2.5:3b") -> dict:
+    level_instruction = LEVEL_INSTRUCTIONS.get(level, "Use natural conversational English.")
+    name_line = f"The user's name is {user_name}. Address them by name.\n\n" if user_name else ""
+    prompt = (
+        f"{topic_prompt}\n\n"
+        f"Level: {level}. {level_instruction}\n\n"
+        f"{name_line}"
+        "You are starting a new conversation. Introduce the topic briefly "
+        "and ask the user a question to begin.\n\n"
+        'Respond in JSON format: {"reply": "Your opening message here"}'
+    )
+    response = _ollama_chat([{"role": "system", "content": prompt}], format_json=True, model=llm_model)
+    pt = response.get("prompt_tokens", 0)
+    ct = response.get("completion_tokens", 0)
+    reply = response["content"]
+    try:
+        data = json.loads(reply)
+        result_reply = data.get("reply", "")
+        if not isinstance(result_reply, str) or not result_reply.strip():
+            raise ValueError("Missing or empty 'reply' field")
+        logger.info(f"Opening generated: {len(result_reply)} chars (prompt_tokens={pt}, completion_tokens={ct})")
+        return {"reply": result_reply.strip(), "prompt_tokens": pt, "completion_tokens": ct}
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Failed to parse opening LLM output: {e}")
+        return {"reply": FALLBACK_MSG, "prompt_tokens": pt, "completion_tokens": ct}
 
 
 def _compute_correction_stats(turns: list[dict]) -> dict:
@@ -185,8 +235,11 @@ def generate_review(session: dict) -> dict:
     )
 
     try:
-        reply = _ollama_chat([{"role": "user", "content": prompt}], format_json=True, model=llm_model)
-        data = json.loads(reply)
+        response = _ollama_chat([{"role": "user", "content": prompt}], format_json=True, model=llm_model)
+        pt = response.get("prompt_tokens", 0)
+        ct = response.get("completion_tokens", 0)
+        logger.info(f"Review generated (prompt_tokens={pt}, completion_tokens={ct})")
+        data = json.loads(response["content"])
         topics = data.get("topics_to_review", []) if isinstance(data, dict) else []
         return {**stats, "topics_to_review": topics}
     except (httpx.RequestError, KeyError, ValueError, json.JSONDecodeError) as e:

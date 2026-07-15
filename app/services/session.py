@@ -15,7 +15,7 @@ DEFAULT_TOPIC = "small-talk"
 DEFAULT_LEVEL = "A2"
 
 
-def create_session(topic: str, level: str, llm_model: str = "qwen2.5:3b", context_turns: int = 10) -> dict:
+def create_session(topic: str, level: str, user_name: str = "", llm_model: str = "qwen2.5:3b", context_turns: int = 10) -> dict:
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     session_id = str(uuid.uuid4())
@@ -23,10 +23,12 @@ def create_session(topic: str, level: str, llm_model: str = "qwen2.5:3b", contex
         "session_id": session_id,
         "topic": topic,
         "level": level,
+        "user_name": user_name,
         "llm_model": llm_model,
         "context_turns": context_turns,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "turns": [],
+        "tokens": {"prompt": 0, "completion": 0, "total": 0},
     }
 
     filepath = SESSIONS_DIR / f"{session_id}.json"
@@ -54,7 +56,37 @@ def get_session(session_id: str) -> dict | None:
         return None
 
 
-def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | None = None, session: dict | None = None) -> dict:
+def add_opening_turn(session_id: str, ai_text: str, session: dict | None = None, prompt_tokens: int = 0, completion_tokens: int = 0) -> dict:
+    if session is None:
+        session = get_session(session_id)
+    if session is None:
+        raise ValueError(f"Session not found: {session_id}")
+    if "turns" not in session or not isinstance(session["turns"], list):
+        session["turns"] = []
+    session["turns"].append({
+        "role": "assistant",
+        "text": ai_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+    })
+    tokens = session.get("tokens", {"prompt": 0, "completion": 0, "total": 0})
+    tokens["prompt"] += prompt_tokens
+    tokens["completion"] += completion_tokens
+    tokens["total"] += prompt_tokens + completion_tokens
+    session["tokens"] = tokens
+    filepath = SESSIONS_DIR / f"{session_id}.json"
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(session, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        logger.error(f"Failed to write session file {filepath}: {e}")
+        raise
+    logger.info(f"Opening turn added to session {session_id}: ai={len(ai_text)} chars (prompt_tokens={prompt_tokens}, completion_tokens={completion_tokens})")
+    return session
+
+
+def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | None = None, session: dict | None = None, prompt_tokens: int = 0, completion_tokens: int = 0) -> dict:
     if session is None:
         session = get_session(session_id)
     if session is None:
@@ -76,13 +108,25 @@ def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | N
         "role": "assistant",
         "text": ai_text,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
     })
 
-    filepath = SESSIONS_DIR / f"{session_id}.json"
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(session, f, indent=2, ensure_ascii=False)
+    tokens = session.get("tokens", {"prompt": 0, "completion": 0, "total": 0})
+    tokens["prompt"] += prompt_tokens
+    tokens["completion"] += completion_tokens
+    tokens["total"] += prompt_tokens + completion_tokens
+    session["tokens"] = tokens
 
-    logger.info(f"Turn added to session {session_id}: user={len(user_text)} chars, ai={len(ai_text)} chars")
+    filepath = SESSIONS_DIR / f"{session_id}.json"
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(session, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        logger.error(f"Failed to write session file {filepath}: {e}")
+        raise
+
+    logger.info(f"Turn added to session {session_id}: user={len(user_text)} chars, ai={len(ai_text)} chars (prompt_tokens={prompt_tokens}, completion_tokens={completion_tokens})")
     return session
 
 

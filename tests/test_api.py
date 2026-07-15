@@ -4,6 +4,37 @@ from app.services import tts
 from app.services.tts import synthesize
 
 
+def test_start_endpoint_success(client):
+    resp = client.post("/api/sessions", json={"topic": "small-talk", "level": "A2"})
+    session_id = resp.json()["session_id"]
+
+    with patch("app.services.llm._ollama_chat") as mock_chat:
+        mock_chat.return_value = {
+            "content": '{"reply": "Hi there! How are you?"}',
+            "prompt_tokens": 45,
+            "completion_tokens": 12,
+        }
+        response = client.post("/api/start", json={"session_id": session_id})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["reply"] == "Hi there! How are you?"
+
+
+def test_start_endpoint_unknown_session(client):
+    response = client.post("/api/start", json={"session_id": "nonexistent"})
+    assert response.status_code == 404
+
+
+def test_start_endpoint_opening_failure(client):
+    resp = client.post("/api/sessions", json={"topic": "small-talk", "level": "A2"})
+    session_id = resp.json()["session_id"]
+
+    with patch("app.main.generate_opening") as mock_gen:
+        mock_gen.side_effect = Exception("LLM unavailable")
+        response = client.post("/api/start", json={"session_id": session_id})
+        assert response.status_code == 502
+
+
 def test_tts_endpoint_success(client):
     tts._voice = None
     with patch("app.services.tts.PiperVoice") as mock_pv:
@@ -31,12 +62,17 @@ def test_review_endpoint_no_turns(client):
     session_id = resp.json()["session_id"]
 
     with patch("app.services.llm._ollama_chat") as mock_chat:
-        mock_chat.return_value = '{"total_errors": 0, "by_type": {}, "topics_to_review": []}'
+        mock_chat.return_value = {
+            "content": '{"total_errors": 0, "by_type": {}, "topics_to_review": []}',
+            "prompt_tokens": 30,
+            "completion_tokens": 10,
+        }
         response = client.post("/api/review", json={"session_id": session_id})
         assert response.status_code == 200
         data = response.json()
         assert "summary" in data
         assert data["summary"]["total_errors"] == 0
+        assert data["tokens"] == {"prompt": 0, "completion": 0, "total": 0}
 
 
 def test_review_endpoint_unknown_session(client):
@@ -85,10 +121,15 @@ def test_review_endpoint_returns_level_adjustment(client):
         add_turn(session_id, f"turn {i}", "OK", correction=None)
 
     with patch("app.services.llm._ollama_chat") as mock_chat:
-        mock_chat.return_value = '{"total_errors": 0, "by_type": {}, "topics_to_review": []}'
+        mock_chat.return_value = {
+            "content": '{"total_errors": 0, "by_type": {}, "topics_to_review": []}',
+            "prompt_tokens": 30,
+            "completion_tokens": 10,
+        }
         response = client.post("/api/review", json={"session_id": session_id})
         assert response.status_code == 200
         data = response.json()
         assert "level_adjustment" in data
         assert data["level_adjustment"]["from"] == "B1"
         assert data["level_adjustment"]["to"] == "B2"
+        assert "tokens" in data

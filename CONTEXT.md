@@ -29,9 +29,10 @@ A conversation scenario (small-talk, job-interview, restaurant, travel). Defines
 - **STT**: faster-whisper. Supports `base.en` (default, 74M params) and `tiny.en` (39M, ~2x faster). Selected via toggle in welcome screen.
 - **LLM**: Ollama. Supports `qwen2.5:3b` (default), `qwen2.5:1.5b` (~2-3x faster), `llama3.2:1b` (~3-4x faster). Selected via toggle.
 - **TTS**: Piper TTS `en_US-lessac-medium`.
-- **Correction**: end-of-session only. Single-pass (reply + correction = one LLM call at end, not per-turn).
+- **Correction**: per-turn (reply + correction in one LLM call). Aggregate summary at session end.
 - **Context**: last 10 turns (default) or 5 turns sent to LLM. Selected via toggle.
-- **Pipeline**: always separated. Transcribe first (shows transcript immediately), then chat (LLM generates reply). User sees their text while LLM processes.
+- **Pipeline**: always separated. Start first (AI opens with question), then transcribe (shows transcript immediately), then chat (LLM generates reply + correction + next question). User sees their text while LLM processes.
+- **Conversation style**: AI drives the conversation. Always ends reply with a question. First turn is AI-only opening.
 - **Persistence**: JSON files, not SQLite (MVP).
 - **Auth**: none (single user).
 - **Audio format**: WAV 16-bit mono 16kHz from browser MediaRecorder.

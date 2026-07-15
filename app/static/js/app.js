@@ -2,6 +2,7 @@
   var CEFR_INDEX = { A1: 0, A2: 1, B1: 2, B2: 3, C1: 4, C2: 5 };
   var selectedTopic = null;
   var selectedLevel = null;
+  var userName = "";
   var sessionId = null;
   var sttModel = "base.en";
   var sttBeam = 5;
@@ -227,6 +228,13 @@
     });
   });
 
+  var nameInput = document.getElementById("name-input");
+  if (nameInput) {
+    nameInput.addEventListener("input", function () {
+      userName = nameInput.value.trim();
+    });
+  }
+
   var optGroups = document.querySelectorAll(".opt-group");
   optGroups.forEach(function (group) {
     var btns = group.querySelectorAll(".opt-btn");
@@ -258,6 +266,7 @@
       body: JSON.stringify({
         topic: selectedTopic,
         level: selectedLevel,
+        user_name: userName,
         llm_model: llmModel,
         context_turns: llmContext,
       }),
@@ -268,10 +277,53 @@
         chatTopicLabel.textContent = selectedTopic;
         chatLevelLabel.textContent = selectedLevel;
         messageList.innerHTML = "";
-        setCircleState("idle", "Tap mic to start");
         showChat();
         startBtn.disabled = false;
         startBtn.textContent = "Start Conversation";
+
+        setCircleState("processing", "Generating opening...");
+
+        var ac = new AbortController();
+        var timeoutId = setTimeout(function () { ac.abort(); }, 30000);
+
+        fetch("/api/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+          signal: ac.signal,
+        })
+          .then(function (r) {
+            clearTimeout(timeoutId);
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "Start failed"); });
+            return r.json();
+          })
+          .then(function (data) {
+            addMessage(data.reply, "ai");
+            setCircleState("processing", "Generating voice...");
+
+            return fetch("/api/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: data.reply || "" }),
+            });
+          })
+          .then(function (r) { return r.blob(); })
+          .then(function (blob) {
+            if (blob.size === 0) {
+              logError("TTS returned empty blob");
+              setCircleState("idle", "Tap mic to start");
+              return;
+            }
+            setCircleState("playing", "Playing...");
+            return blobToArrayBuffer(blob);
+          })
+          .then(function (buf) {
+            if (buf) startPlaybackVisualizer(buf);
+          })
+          .catch(function (err) {
+            logError("Start conversation error:", err);
+            setCircleState("idle", "Tap mic to start");
+          });
       })
       .catch(function () {
         startBtn.disabled = false;
