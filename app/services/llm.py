@@ -126,7 +126,7 @@ FALLBACK_MSG = "I'm sorry, I couldn't generate a response."
 
 def _fallback_reply(raw: str) -> str:
     cleaned = raw.strip()
-    if not cleaned or len(cleaned) < 5 or cleaned in ("{}", "[]", '""'):
+    if not cleaned or cleaned in ("{}", "[]", '""'):
         return FALLBACK_MSG
     return cleaned
 

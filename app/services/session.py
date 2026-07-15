@@ -96,8 +96,6 @@ def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | N
         "role": "user",
         "text": user_text,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
     }
     if correction is not None and isinstance(correction, dict):
         required = ("original", "corrected", "explanation_pt", "error_type")
@@ -110,6 +108,8 @@ def add_turn(session_id: str, user_text: str, ai_text: str, correction: dict | N
         "role": "assistant",
         "text": ai_text,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
     })
 
     tokens = session.get("tokens", {"prompt": 0, "completion": 0, "total": 0})

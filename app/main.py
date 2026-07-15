@@ -144,7 +144,7 @@ async def api_start(req: StartConversationRequest):
         add_opening_turn(req.session_id, result["reply"], session=session, prompt_tokens=result.get("prompt_tokens", 0), completion_tokens=result.get("completion_tokens", 0))
     except Exception as e:
         logger.error(f"Failed to persist opening turn for session {req.session_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to persist opening turn: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to persist opening turn.")
 
     return {"reply": result["reply"]}
 
@@ -188,7 +188,7 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
         add_turn(session_id, user_text, result["reply"], correction=result.get("correction"), session=session, prompt_tokens=result.get("prompt_tokens", 0), completion_tokens=result.get("completion_tokens", 0))
     except Exception as e:
         logger.error(f"Failed to persist turn for session {session_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to persist turn: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to persist turn.")
 
     return {
         "transcript": user_text,
@@ -224,7 +224,7 @@ async def api_chat(req: ChatRequest):
         add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"), session=session, prompt_tokens=result.get("prompt_tokens", 0), completion_tokens=result.get("completion_tokens", 0))
     except Exception as e:
         logger.error(f"Failed to persist turn for session {req.session_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to persist turn: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to persist turn.")
 
     return {
         "transcript": req.text,
