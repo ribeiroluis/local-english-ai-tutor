@@ -3,7 +3,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from app.services.llm import LEVEL_INSTRUCTIONS, build_messages, generate_review, generate_with_correction
+from app.services.llm import FALLBACK_MSG, LEVEL_INSTRUCTIONS, build_messages, generate_opening, generate_review, generate_with_correction
 
 
 class TestBuildMessages:
@@ -48,6 +48,90 @@ class TestBuildMessages:
         assert len(messages) == 2
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"] == "hello"
+
+
+class TestGenerateOpening:
+    def test_opening_success(self):
+        mock_response = {
+            "message": {
+                "content": '{"reply": "Hi there! How are you today?"}'
+            },
+        }
+        with patch("httpx.Client") as mock_client:
+            mock_instance = mock_client.return_value.__enter__.return_value
+            mock_instance.post.return_value.raise_for_status.return_value = None
+            mock_instance.post.return_value.json.return_value = mock_response
+
+            result = generate_opening("Be friendly.", "A2")
+            assert result["reply"] == "Hi there! How are you today?"
+
+    def test_opening_includes_user_name(self):
+        mock_response = {
+            "message": {
+                "content": '{"reply": "Hello John! Ready to practice?"}'
+            },
+        }
+        with patch("httpx.Client") as mock_client:
+            mock_instance = mock_client.return_value.__enter__.return_value
+            mock_instance.post.return_value.raise_for_status.return_value = None
+            mock_instance.post.return_value.json.return_value = mock_response
+
+            result = generate_opening("Be friendly.", "B1", user_name="John")
+            assert result["reply"] == "Hello John! Ready to practice?"
+
+    def test_opening_empty_reply_field_fallback(self):
+        mock_response = {
+            "message": {
+                "content": '{"reply": ""}'
+            },
+        }
+        with patch("httpx.Client") as mock_client:
+            mock_instance = mock_client.return_value.__enter__.return_value
+            mock_instance.post.return_value.raise_for_status.return_value = None
+            mock_instance.post.return_value.json.return_value = mock_response
+
+            result = generate_opening("Be friendly.", "A1")
+            assert result["reply"] == FALLBACK_MSG
+
+    def test_opening_invalid_json_fallback(self):
+        mock_response = {
+            "message": {
+                "content": "not valid json at all"
+            },
+        }
+        with patch("httpx.Client") as mock_client:
+            mock_instance = mock_client.return_value.__enter__.return_value
+            mock_instance.post.return_value.raise_for_status.return_value = None
+            mock_instance.post.return_value.json.return_value = mock_response
+
+            result = generate_opening("Be friendly.", "A2")
+            assert result["reply"] == FALLBACK_MSG
+
+    def test_opening_missing_reply_field_fallback(self):
+        mock_response = {
+            "message": {
+                "content": '{"correction": null}'
+            },
+        }
+        with patch("httpx.Client") as mock_client:
+            mock_instance = mock_client.return_value.__enter__.return_value
+            mock_instance.post.return_value.raise_for_status.return_value = None
+            mock_instance.post.return_value.json.return_value = mock_response
+
+            result = generate_opening("Be friendly.", "B2")
+            assert result["reply"] == FALLBACK_MSG
+
+    def test_opening_passes_format_json(self):
+        with patch("httpx.Client") as mock_client:
+            mock_instance = mock_client.return_value.__enter__.return_value
+            mock_instance.post.return_value.raise_for_status.return_value = None
+            mock_instance.post.return_value.json.return_value = {
+                "message": {"content": '{"reply": "Hello!"}'}
+            }
+
+            generate_opening("Prompt.", "A2")
+            call_kwargs = mock_instance.post.call_args[1]
+            assert call_kwargs["json"].get("format") == "json"
 
 
 class TestGenerateWithCorrection:

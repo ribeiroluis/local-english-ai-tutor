@@ -4,6 +4,33 @@ from app.services import tts
 from app.services.tts import synthesize
 
 
+def test_start_endpoint_success(client):
+    resp = client.post("/api/sessions", json={"topic": "small-talk", "level": "A2"})
+    session_id = resp.json()["session_id"]
+
+    with patch("app.services.llm._ollama_chat") as mock_chat:
+        mock_chat.return_value = '{"reply": "Hi there! How are you?"}'
+        response = client.post("/api/start", json={"session_id": session_id})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["reply"] == "Hi there! How are you?"
+
+
+def test_start_endpoint_unknown_session(client):
+    response = client.post("/api/start", json={"session_id": "nonexistent"})
+    assert response.status_code == 404
+
+
+def test_start_endpoint_opening_failure(client):
+    resp = client.post("/api/sessions", json={"topic": "small-talk", "level": "A2"})
+    session_id = resp.json()["session_id"]
+
+    with patch("app.main.generate_opening") as mock_gen:
+        mock_gen.side_effect = Exception("LLM unavailable")
+        response = client.post("/api/start", json={"session_id": session_id})
+        assert response.status_code == 502
+
+
 def test_tts_endpoint_success(client):
     tts._voice = None
     with patch("app.services.tts.PiperVoice") as mock_pv:

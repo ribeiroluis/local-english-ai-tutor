@@ -283,14 +283,22 @@
 
         setCircleState("processing", "Thinking...");
 
+        var ac = new AbortController();
+        var timeoutId = setTimeout(function () { ac.abort(); }, 30000);
+
         fetch("/api/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sessionId }),
+          signal: ac.signal,
         })
-          .then(function (r) { return r.json(); })
+          .then(function (r) {
+            clearTimeout(timeoutId);
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "Start failed"); });
+            return r.json();
+          })
           .then(function (data) {
-            addMessage(data.reply || "", "ai");
+            addMessage(data.reply, "ai");
             setCircleState("processing", "Generating voice...");
 
             return fetch("/api/tts", {

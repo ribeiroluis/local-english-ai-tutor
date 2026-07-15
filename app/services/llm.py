@@ -166,7 +166,7 @@ def generate_opening(topic_prompt: str, level: str, user_name: str = "", llm_mod
         return {"reply": result_reply.strip()}
     except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"Failed to parse opening LLM output: {e}")
-        return {"reply": _fallback_reply(reply)}
+        return {"reply": FALLBACK_MSG}
 
 
 def _compute_correction_stats(turns: list[dict]) -> dict:
