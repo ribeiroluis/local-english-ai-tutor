@@ -9,7 +9,11 @@ def test_start_endpoint_success(client):
     session_id = resp.json()["session_id"]
 
     with patch("app.services.llm._ollama_chat") as mock_chat:
-        mock_chat.return_value = '{"reply": "Hi there! How are you?"}'
+        mock_chat.return_value = {
+            "content": '{"reply": "Hi there! How are you?"}',
+            "prompt_tokens": 45,
+            "completion_tokens": 12,
+        }
         response = client.post("/api/start", json={"session_id": session_id})
         assert response.status_code == 200
         data = response.json()
@@ -58,12 +62,17 @@ def test_review_endpoint_no_turns(client):
     session_id = resp.json()["session_id"]
 
     with patch("app.services.llm._ollama_chat") as mock_chat:
-        mock_chat.return_value = '{"total_errors": 0, "by_type": {}, "topics_to_review": []}'
+        mock_chat.return_value = {
+            "content": '{"total_errors": 0, "by_type": {}, "topics_to_review": []}',
+            "prompt_tokens": 30,
+            "completion_tokens": 10,
+        }
         response = client.post("/api/review", json={"session_id": session_id})
         assert response.status_code == 200
         data = response.json()
         assert "summary" in data
         assert data["summary"]["total_errors"] == 0
+        assert data["tokens"] == {"prompt": 0, "completion": 0, "total": 0}
 
 
 def test_review_endpoint_unknown_session(client):
@@ -112,10 +121,15 @@ def test_review_endpoint_returns_level_adjustment(client):
         add_turn(session_id, f"turn {i}", "OK", correction=None)
 
     with patch("app.services.llm._ollama_chat") as mock_chat:
-        mock_chat.return_value = '{"total_errors": 0, "by_type": {}, "topics_to_review": []}'
+        mock_chat.return_value = {
+            "content": '{"total_errors": 0, "by_type": {}, "topics_to_review": []}',
+            "prompt_tokens": 30,
+            "completion_tokens": 10,
+        }
         response = client.post("/api/review", json={"session_id": session_id})
         assert response.status_code == 200
         data = response.json()
         assert "level_adjustment" in data
         assert data["level_adjustment"]["from"] == "B1"
         assert data["level_adjustment"]["to"] == "B2"
+        assert "tokens" in data

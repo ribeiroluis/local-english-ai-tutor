@@ -141,7 +141,7 @@ async def api_start(req: StartConversationRequest):
         raise HTTPException(status_code=502, detail="Failed to generate opening message.")
 
     try:
-        add_opening_turn(req.session_id, result["reply"], session=session)
+        add_opening_turn(req.session_id, result["reply"], session=session, prompt_tokens=result.get("prompt_tokens", 0), completion_tokens=result.get("completion_tokens", 0))
     except Exception as e:
         logger.error(f"Failed to persist opening turn for session {req.session_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to persist opening turn: {str(e)}")
@@ -185,7 +185,7 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
         raise HTTPException(status_code=502, detail="AI response failed.")
 
     try:
-        add_turn(session_id, user_text, result["reply"], correction=result.get("correction"), session=session)
+        add_turn(session_id, user_text, result["reply"], correction=result.get("correction"), session=session, prompt_tokens=result.get("prompt_tokens", 0), completion_tokens=result.get("completion_tokens", 0))
     except Exception as e:
         logger.error(f"Failed to persist turn for session {session_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to persist turn: {str(e)}")
@@ -221,7 +221,7 @@ async def api_chat(req: ChatRequest):
         raise HTTPException(status_code=502, detail="AI response failed.")
 
     try:
-        add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"), session=session)
+        add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"), session=session, prompt_tokens=result.get("prompt_tokens", 0), completion_tokens=result.get("completion_tokens", 0))
     except Exception as e:
         logger.error(f"Failed to persist turn for session {req.session_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to persist turn: {str(e)}")
@@ -261,4 +261,4 @@ async def api_review(req: ReviewRequest):
         logger.error(f"CEFR adjustment failed: {e}")
         raise HTTPException(status_code=500, detail=f"CEFR level adjustment failed: {str(e)}")
 
-    return {"summary": summary, "level_adjustment": level_adjustment}
+    return {"summary": summary, "level_adjustment": level_adjustment, "tokens": session.get("tokens", {})}
