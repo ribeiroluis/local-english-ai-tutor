@@ -138,7 +138,7 @@ async def api_start(req: StartConversationRequest):
         result = generate_opening(topic["system_prompt"], session["level"], user_name=user_name, llm_model=llm_model)
     except Exception as e:
         logger.error(f"Opening generation failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Opening failed: {str(e)}")
+        raise HTTPException(status_code=502, detail="Failed to generate opening message.")
 
     try:
         add_opening_turn(req.session_id, result["reply"], session=session)
@@ -182,7 +182,7 @@ async def api_converse(file: UploadFile = File(...), session_id: str = Form(...)
         )
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
-        raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
+        raise HTTPException(status_code=502, detail="AI response failed.")
 
     try:
         add_turn(session_id, user_text, result["reply"], correction=result.get("correction"), session=session)
@@ -218,7 +218,7 @@ async def api_chat(req: ChatRequest):
         )
     except Exception as e:
         logger.error(f"LLM generation failed: {e}")
-        raise HTTPException(status_code=502, detail=f"AI response failed: {str(e)}")
+        raise HTTPException(status_code=502, detail="AI response failed.")
 
     try:
         add_turn(req.session_id, req.text, result["reply"], correction=result.get("correction"), session=session)

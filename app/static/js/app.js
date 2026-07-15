@@ -281,7 +281,7 @@
         startBtn.disabled = false;
         startBtn.textContent = "Start Conversation";
 
-        setCircleState("processing", "Thinking...");
+        setCircleState("processing", "Generating opening...");
 
         var ac = new AbortController();
         var timeoutId = setTimeout(function () { ac.abort(); }, 30000);
